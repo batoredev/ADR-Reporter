@@ -3,7 +3,7 @@
 **Status:**
 - Plan approved with changes (revision 2, 22/10/2026).
 - Each build step starts only after explicit approval, and stops for review when done.
-- Step 1 is approved.
+- Step 1 (Foundation) is built and awaiting review. Step 2 has not started.
 
 | | |
 |---|---|

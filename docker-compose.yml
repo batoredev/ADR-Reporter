@@ -1,0 +1,17 @@
+# Optional: local PostgreSQL 16 for development, if you prefer Docker to installing PostgreSQL.
+#   docker compose up -d
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: adr
+      POSTGRES_PASSWORD: adr_dev_password
+      POSTGRES_DB: adr_reporter
+    ports:
+      - "5432:5432"
+    volumes:
+      - adr-postgres:/var/lib/postgresql/data
+      - ./docker/create-test-database.sql:/docker-entrypoint-initdb.d/create-test-database.sql:ro
+
+volumes:
+  adr-postgres:

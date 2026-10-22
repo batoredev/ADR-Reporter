@@ -1,0 +1,656 @@
+// ADR Reporter prototype schema.
+// Field names follow the PvPI Suspected ADR Reporting Form v1.4; see
+// docs/ARCHITECTURE_PLAN.md (section 5) and docs/reference/adrrf-v1.4-field-map.json.
+//
+// Dates entered by reporters are stored as text with their precision
+// ("YYYY", "YYYY-MM" or "YYYY-MM-DD") plus an "approximate" flag, so a
+// partial date is never padded with an invented day or month.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Institution, people and sessions
+// ---------------------------------------------------------------------------
+
+model Institution {
+  id                     String   @id @default(cuid())
+  name                   String
+  department             String?
+  nextCaseNumber         Int      @default(1)
+  // Optional institution-configured target; empty means "show elapsed time only".
+  urgentAckTargetMinutes Int?
+  createdAt              DateTime @default(now())
+
+  users      User[]
+  cases      AdrCase[]
+  auditLogs  AuditLog[]
+}
+
+enum Role {
+  REPORTER
+  REVIEWER
+  COORDINATOR
+}
+
+model User {
+  id              String   @id @default(cuid())
+  institutionId   String
+  email           String   @unique
+  name            String
+  passwordHash    String
+  roles           Role[]
+  designation     String?
+  occupation      String?
+  address         String?
+  pin             String?
+  phone           String?
+  // Explicitly assigned authorities (never inferred from a job title).
+  isUrgentContact Boolean  @default(false)
+  canReassign     Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id])
+  sessions    Session[]
+
+  reportedCases        AdrCase[]             @relation("CaseReporter")
+  assignedCases        AdrCase[]             @relation("CaseAssignee")
+  versionsCreated      CaseVersion[]
+  assignmentsActed     CaseAssignment[]      @relation("AssignmentActor")
+  assignmentsFrom      CaseAssignment[]      @relation("AssignmentFrom")
+  assignmentsTo        CaseAssignment[]      @relation("AssignmentTo")
+  checklistItems       ReviewChecklistItem[]
+  comments             ReviewComment[]       @relation("CommentAuthor")
+  commentsResolved     ReviewComment[]       @relation("CommentResolver")
+  decisions            ReviewDecision[]
+  escalationsRaised    UrgentEscalation[]    @relation("EscalationRaisedBy")
+  escalationsAcked     UrgentEscalation[]    @relation("EscalationAckedBy")
+  escalationsClosed    UrgentEscalation[]    @relation("EscalationClosedBy")
+  submissionsRecorded  ExternalSubmission[]  @relation("SubmissionRecordedBy")
+  acknowledgementsRecorded ExternalSubmission[] @relation("AcknowledgementRecordedBy")
+  documentsUploaded    UploadedDocument[]
+  extractionRuns       ExtractionRun[]
+  extractedItemsDecided ExtractedItem[]
+  provenanceVerified   FieldProvenance[]
+  auditLogs            AuditLog[]
+
+  @@index([institutionId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  // SHA-256 of the random token held in the browser cookie; the token itself is never stored.
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// ADR case (PvPI form sections A-D)
+// ---------------------------------------------------------------------------
+
+enum CaseStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  RETURNED
+  RESUBMITTED
+  APPROVED
+  EXTERNALLY_SUBMITTED
+  ACKNOWLEDGED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum AgeUnit {
+  YEARS
+  MONTHS
+  WEEKS
+  DAYS
+}
+
+enum HistoryFlag {
+  ALLERGY
+  PREGNANCY
+  ADDICTION
+  HEPATIC_DYSFUNCTION
+  RENAL_DYSFUNCTION
+}
+
+enum SeriousAnswer {
+  YES
+  NO
+  UNKNOWN
+}
+
+enum SeriousnessCriterion {
+  DEATH
+  LIFE_THREATENING
+  HOSPITALISATION
+  CONGENITAL_ANOMALY
+  DISABILITY
+  OTHER_MEDICALLY_IMPORTANT
+}
+
+enum Outcome {
+  RECOVERED
+  RECOVERING
+  NOT_RECOVERED
+  FATAL
+  RECOVERED_WITH_SEQUELAE
+  UNKNOWN
+}
+
+model AdrCase {
+  id            String     @id @default(cuid())
+  institutionId String
+  caseNumber    String
+  status        CaseStatus @default(DRAFT)
+  reporterId    String
+  assigneeId    String?
+  claimedAt     DateTime?
+  firstSubmittedAt DateTime?
+  lastSubmittedAt  DateTime?
+  approvedAt    DateTime?
+  currentVersion Int       @default(0)
+  // Optimistic concurrency: every write checks and increments this.
+  lockVersion   Int        @default(0)
+  // Derived from seriousAnswer / seriousnessCriteria on every save; stored for sorting.
+  isPotentiallySerious Boolean @default(false)
+
+  // A. Patient information
+  patientInitials   String?
+  ageValue          Int?
+  ageUnit           AgeUnit?
+  dateOfBirth       String?
+  dateOfBirthApprox Boolean  @default(false)
+  gender            Gender?
+  weightKg          Float?
+
+  // B. Suspected adverse reaction
+  reactionTerms           String?
+  reactionDescription     String?
+  reactionManagement      String?
+  reactionStartDate       String?
+  reactionStartDateApprox Boolean @default(false)
+  reactionStopDate        String?
+  reactionStopDateApprox  Boolean @default(false)
+  reactionOngoing         Boolean @default(false)
+  medicalHistory          String?
+  historyFlags            HistoryFlag[]
+  seriousAnswer           SeriousAnswer?
+  seriousnessCriteria     SeriousnessCriterion[]
+  deathDate               String?
+  deathDateApprox         Boolean @default(false)
+  outcome                 Outcome?
+  additionalInformation   String?
+
+  // Fields the reporter explicitly marked "Unknown" (printed as "Unknown").
+  unknownFields String[]
+
+  // D. Reporter details, snapshotted from the profile at submission.
+  reporterName       String?
+  reporterAddress    String?
+  reporterPin        String?
+  reporterEmail      String?
+  reporterPhone      String?
+  reporterOccupation String?
+  reportDate         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id])
+  reporter    User        @relation("CaseReporter", fields: [reporterId], references: [id])
+  assignee    User?       @relation("CaseAssignee", fields: [assigneeId], references: [id])
+
+  investigations      Investigation[]
+  suspectedMedicines  SuspectedMedicine[]
+  concomitantProducts ConcomitantProduct[]
+  versions            CaseVersion[]
+  assignments         CaseAssignment[]
+  checklistItems      ReviewChecklistItem[]
+  comments            ReviewComment[]
+  decisions           ReviewDecision[]
+  escalations         UrgentEscalation[]
+  externalSubmissions ExternalSubmission[]
+  documents           UploadedDocument[]
+  provenance          FieldProvenance[]
+  auditLogs           AuditLog[]
+
+  @@unique([institutionId, caseNumber])
+  @@index([institutionId, status])
+  @@index([institutionId, reporterId])
+  @@index([institutionId, assigneeId])
+  @@index([institutionId, isPotentiallySerious, lastSubmittedAt])
+}
+
+model Investigation {
+  id            String   @id @default(cuid())
+  caseId        String
+  position      Int
+  testName      String?
+  result        String?
+  date          String?
+  dateApprox    Boolean  @default(false)
+  unknownFields String[]
+
+  adrCase AdrCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, position])
+}
+
+enum ActionTaken {
+  DRUG_WITHDRAWN
+  DOSE_INCREASED
+  DOSE_REDUCED
+  DOSE_NOT_CHANGED
+  NOT_APPLICABLE
+  UNKNOWN
+}
+
+enum Rechallenge {
+  YES
+  NO
+  EFFECT_UNKNOWN
+  NOT_REINTRODUCED
+}
+
+model SuspectedMedicine {
+  id               String       @id @default(cuid())
+  caseId           String
+  position         Int
+  name             String?
+  manufacturer     String?
+  batchLot         String?
+  expiryDate       String?
+  expiryDateApprox Boolean      @default(false)
+  dose             String?
+  route            String?
+  frequency        String?
+  startDate        String?
+  startDateApprox  Boolean      @default(false)
+  stopDate         String?
+  stopDateApprox   Boolean      @default(false)
+  ongoing          Boolean      @default(false)
+  indication       String?
+  actionTaken      ActionTaken?
+  rechallenge      Rechallenge?
+  rechallengeDose  String?
+  unknownFields    String[]
+
+  adrCase AdrCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, position])
+}
+
+model ConcomitantProduct {
+  id                  String   @id @default(cuid())
+  caseId              String
+  position            Int
+  name                String?
+  dose                String?
+  route               String?
+  frequency           String?
+  startDate           String?
+  startDateApprox     Boolean  @default(false)
+  stopDate            String?
+  stopDateApprox      Boolean  @default(false)
+  ongoing             Boolean  @default(false)
+  indication          String?
+  // Item 11 excludes products used to treat the reaction; these print under item 7.
+  usedToTreatReaction Boolean  @default(false)
+  unknownFields       String[]
+
+  adrCase AdrCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, position])
+}
+
+// ---------------------------------------------------------------------------
+// Versions and review
+// ---------------------------------------------------------------------------
+
+enum VersionReason {
+  SUBMITTED
+  RESUBMITTED
+  APPROVED
+}
+
+model CaseVersion {
+  id          String        @id @default(cuid())
+  caseId      String
+  versionNo   Int
+  reason      VersionReason
+  // Frozen copy of the whole case at this moment; never updated.
+  snapshot    Json
+  createdById String
+  createdAt   DateTime      @default(now())
+
+  adrCase   AdrCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  createdBy User    @relation(fields: [createdById], references: [id])
+
+  @@unique([caseId, versionNo])
+}
+
+enum AssignmentAction {
+  CLAIMED
+  RELEASED
+  REASSIGNED
+}
+
+model CaseAssignment {
+  id         String           @id @default(cuid())
+  caseId     String
+  action     AssignmentAction
+  fromUserId String?
+  toUserId   String?
+  actorId    String
+  reason     String?
+  createdAt  DateTime         @default(now())
+
+  adrCase  AdrCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  fromUser User?   @relation("AssignmentFrom", fields: [fromUserId], references: [id])
+  toUser   User?   @relation("AssignmentTo", fields: [toUserId], references: [id])
+  actor    User    @relation("AssignmentActor", fields: [actorId], references: [id])
+
+  @@index([caseId, createdAt])
+}
+
+enum ChecklistItemKey {
+  PATIENT_DATA
+  REACTION_CHRONOLOGY
+  SUSPECTED_MEDICATION
+  CLINICAL_EVIDENCE
+  SERIOUSNESS_OUTCOME
+  REPORTER_COMPLETENESS
+}
+
+enum ChecklistOutcome {
+  VERIFIED
+  VERIFIED_WITH_EXCEPTION
+}
+
+model ReviewChecklistItem {
+  id              String           @id @default(cuid())
+  caseId          String
+  versionNo       Int
+  item            ChecklistItemKey
+  outcome         ChecklistOutcome
+  // Required when outcome is VERIFIED_WITH_EXCEPTION (e.g. information genuinely unavailable).
+  exceptionReason String?
+  reviewerId      String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  adrCase  AdrCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  reviewer User    @relation(fields: [reviewerId], references: [id])
+
+  @@unique([caseId, versionNo, item])
+}
+
+enum CommentKind {
+  NOTE
+  ISSUE
+}
+
+enum IssueStatus {
+  OPEN
+  RESOLVED
+  ACKNOWLEDGED_UNAVAILABLE
+}
+
+model ReviewComment {
+  id             String       @id @default(cuid())
+  caseId         String
+  versionNo      Int
+  authorId       String
+  kind           CommentKind
+  // Optional pointer to a single field, e.g. "reactionStartDate" or "suspectedMedicines.<id>.stopDate".
+  fieldPath      String?
+  body           String
+  // Only issues have a status; notes never block approval.
+  issueStatus    IssueStatus?
+  resolutionNote String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  adrCase    AdrCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  author     User    @relation("CommentAuthor", fields: [authorId], references: [id])
+  resolvedBy User?   @relation("CommentResolver", fields: [resolvedById], references: [id])
+
+  @@index([caseId, createdAt])
+}
+
+enum DecisionType {
+  APPROVE
+  RETURN
+}
+
+model ReviewDecision {
+  id         String       @id @default(cuid())
+  caseId     String
+  versionNo  Int
+  reviewerId String
+  decision   DecisionType
+  reason     String?
+  createdAt  DateTime     @default(now())
+
+  adrCase  AdrCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  reviewer User    @relation(fields: [reviewerId], references: [id])
+
+  @@index([caseId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Urgent escalation and external submission tracking
+// ---------------------------------------------------------------------------
+
+model UrgentEscalation {
+  id               String    @id @default(cuid())
+  caseId           String
+  raisedById       String
+  raisedAt         DateTime  @default(now())
+  note             String
+  // What was known when the escalation was raised (the case may still be a draft).
+  snapshot         Json
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  closedById       String?
+  closedAt         DateTime?
+  closingNote      String?
+
+  adrCase        AdrCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  raisedBy       User    @relation("EscalationRaisedBy", fields: [raisedById], references: [id])
+  acknowledgedBy User?   @relation("EscalationAckedBy", fields: [acknowledgedById], references: [id])
+  closedBy       User?   @relation("EscalationClosedBy", fields: [closedById], references: [id])
+
+  @@index([caseId])
+  @@index([closedAt, raisedAt])
+}
+
+enum ExternalSubmissionKind {
+  ROUTINE
+  URGENT_NOTIFICATION
+}
+
+enum ExternalSubmissionMethod {
+  AMC_EMAIL
+  AMC_HAND_DELIVERY
+  NCC_EMAIL
+  PVPI_HELPLINE
+  ADRPVPI_APP
+  OTHER
+}
+
+// A record of something done outside this application. The app never sends anything.
+model ExternalSubmission {
+  id                          String                   @id @default(cuid())
+  caseId                      String
+  kind                        ExternalSubmissionKind
+  method                      ExternalSubmissionMethod
+  methodOther                 String?
+  destination                 String
+  submittedAt                 DateTime
+  recordedById                String
+  // Only a reference actually provided by the recipient; never generated.
+  externalReference           String?
+  notes                       String?
+  acknowledgedAt              DateTime?
+  acknowledgementReference    String?
+  acknowledgementNotes        String?
+  acknowledgementRecordedById String?
+  createdAt                   DateTime                 @default(now())
+
+  adrCase                   AdrCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  recordedBy                User    @relation("SubmissionRecordedBy", fields: [recordedById], references: [id])
+  acknowledgementRecordedBy User?   @relation("AcknowledgementRecordedBy", fields: [acknowledgementRecordedById], references: [id])
+
+  @@index([caseId])
+}
+
+// ---------------------------------------------------------------------------
+// Uploaded documents and AI extraction (Step 3)
+// ---------------------------------------------------------------------------
+
+model UploadedDocument {
+  id           String   @id @default(cuid())
+  caseId       String
+  uploadedById String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  sha256       String
+  storageKey   String   @unique
+  createdAt    DateTime @default(now())
+
+  adrCase    AdrCase         @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  uploadedBy User            @relation(fields: [uploadedById], references: [id])
+  runs       ExtractionRun[]
+  provenance FieldProvenance[]
+
+  @@index([caseId])
+}
+
+enum ExtractionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  UNAVAILABLE
+}
+
+model ExtractionRun {
+  id            String           @id @default(cuid())
+  documentId    String
+  requestedById String
+  // Which configured provider and model produced the proposal.
+  provider      String
+  model         String
+  status        ExtractionStatus @default(PENDING)
+  errorMessage  String?
+  rawResponse   Json?
+  startedAt     DateTime         @default(now())
+  completedAt   DateTime?
+
+  document    UploadedDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  requestedBy User             @relation(fields: [requestedById], references: [id])
+  items       ExtractedItem[]
+
+  @@index([documentId])
+}
+
+enum ExtractedItemStatus {
+  PENDING
+  ACCEPTED
+  EDITED
+  REJECTED
+}
+
+model ExtractedItem {
+  id              String              @id @default(cuid())
+  runId           String
+  medicationIndex Int
+  fieldName       String
+  proposedValue   String?
+  // The exact text the model reported reading on the document.
+  sourceText      String?
+  uncertain       Boolean             @default(false)
+  status          ExtractedItemStatus @default(PENDING)
+  finalValue      String?
+  decidedById     String?
+  decidedAt       DateTime?
+  // "SUSPECTED" or "CONCOMITANT", chosen by the user, never by the model.
+  targetKind      String?
+  targetRowId     String?
+
+  run       ExtractionRun     @relation(fields: [runId], references: [id], onDelete: Restrict)
+  decidedBy User?             @relation(fields: [decidedById], references: [id])
+  provenance FieldProvenance[]
+
+  @@index([runId])
+}
+
+enum ProvenanceSource {
+  USER_ENTERED
+  DOCUMENT_EXTRACTED
+}
+
+model FieldProvenance {
+  id              String           @id @default(cuid())
+  caseId          String
+  fieldPath       String
+  source          ProvenanceSource
+  documentId      String?
+  extractedItemId String?
+  verifiedById    String?
+  verifiedAt      DateTime?
+  createdAt       DateTime         @default(now())
+
+  adrCase       AdrCase           @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  document      UploadedDocument? @relation(fields: [documentId], references: [id])
+  extractedItem ExtractedItem?    @relation(fields: [extractedItemId], references: [id])
+  verifiedBy    User?             @relation(fields: [verifiedById], references: [id])
+
+  @@unique([caseId, fieldPath])
+}
+
+// ---------------------------------------------------------------------------
+// Audit log (append-only: a database trigger rejects UPDATE, DELETE and TRUNCATE)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  institutionId String
+  caseId        String?
+  actorId       String?
+  action        String
+  // Before/after values and other context for the action.
+  details       Json?
+  createdAt     DateTime @default(now())
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  adrCase     AdrCase?    @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  actor       User?       @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([caseId, createdAt])
+  @@index([institutionId, createdAt])
+}
