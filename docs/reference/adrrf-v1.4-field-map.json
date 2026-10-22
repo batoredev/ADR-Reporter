@@ -1,0 +1,97 @@
+{
+  "form": "PvPI Suspected Adverse Drug Reaction Reporting Form, Version 1.4 (ADRRF_2.pdf)",
+  "notes": [
+    "The official PDF is a fillable AcroForm. Field names are generic, so they were mapped by position against the rendered page 1.",
+    "All text fields use Helvetica with auto font size. Standard Helvetica has no check-mark glyph, so tick-style text cells (items 9 and 10) should be filled with 'X'.",
+    "Checkboxes are turned on with the export value 'Yes'.",
+    "Suspected medicine rows are limited to 4 and concomitant rows to 3 on the official page; extra rows go on a continuation page ('# Use separate page for more information')."
+  ],
+  "checkboxOnValue": "Yes",
+  "fields": {
+    "caseType.initial": "Check Box16",
+    "caseType.followUp": "Check Box1",
+
+    "patient.initials": "Text Field0",
+    "patient.ageOrDateOfBirth": "Text Field1",
+    "patient.gender.male": "Check Box0",
+    "patient.gender.female": "Check Box17",
+    "patient.gender.other": "Check Box18",
+    "patient.weightKg": "Text Field126",
+
+    "reaction.startDate": "Text Field5",
+    "reaction.stopDate": "Text Field6",
+    "reaction.descriptionAndManagement": "Text Field8",
+    "investigations": "Text Field7",
+    "medicalHistory": "Text Field9",
+
+    "seriousness.no": "Check Box2",
+    "seriousness.yes": "Check Box3",
+    "seriousness.death": "Check Box4",
+    "seriousness.deathDate": "Text Field48",
+    "seriousness.lifeThreatening": "Check Box5",
+    "seriousness.hospitalization": "Check Box6",
+    "seriousness.congenitalAnomaly": "Check Box7",
+    "seriousness.disability": "Check Box8",
+    "seriousness.otherMedicallyImportant": "Check Box9",
+
+    "outcome.recovered": "Check Box10",
+    "outcome.fatal": "Check Box11",
+    "outcome.recovering": "Check Box12",
+    "outcome.recoveredWithSequelae": "Check Box13",
+    "outcome.notRecovered": "Check Box14",
+    "outcome.unknown": "Check Box15",
+
+    "additionalInformation": "Text Field38",
+
+    "reporter.nameAndAddressLine1": "Text Field39",
+    "reporter.nameAndAddressLine2": "Text Field40",
+    "reporter.pin": "Text Field42",
+    "reporter.email": "Text Field41",
+    "reporter.contactNo": "Text Field43",
+    "reporter.occupation": "Text Field45",
+    "reporter.signature": "Text Field44",
+    "reporter.dateOfReport": "Text Field46"
+  },
+  "suspectedMedicines": {
+    "section": "C, item 8",
+    "rows": [
+      { "name": "Text Field10", "manufacturer": "Text Field11", "batchLotNo": "Text Field12", "expiryDate": "Text Field13", "dose": "Text Field14", "route": "Text Field15", "frequency": "Text Field16", "dateStarted": "Text Field17", "dateStopped": "Text Field18", "indication": "Text Field19", "causalityAssessment": "Text Field20" },
+      { "name": "Text Field49", "manufacturer": "Text Field52", "batchLotNo": "Text Field55", "expiryDate": "Text Field58", "dose": "Text Field61", "route": "Text Field67", "frequency": "Text Field70", "dateStarted": "Text Field64", "dateStopped": "Text Field88", "indication": "Text Field85", "causalityAssessment": "Text Field91" },
+      { "name": "Text Field50", "manufacturer": "Text Field53", "batchLotNo": "Text Field56", "expiryDate": "Text Field59", "dose": "Text Field62", "route": "Text Field68", "frequency": "Text Field71", "dateStarted": "Text Field65", "dateStopped": "Text Field89", "indication": "Text Field86", "causalityAssessment": "Text Field92" },
+      { "name": "Text Field51", "manufacturer": "Text Field54", "batchLotNo": "Text Field57", "expiryDate": "Text Field60", "dose": "Text Field63", "route": "Text Field69", "frequency": "Text Field72", "dateStarted": "Text Field66", "dateStopped": "Text Field90", "indication": "Text Field87", "causalityAssessment": "Text Field93" }
+    ]
+  },
+  "actionTakenAfterReaction": {
+    "section": "C, item 9 (rows follow the suspected medicine rows)",
+    "rows": [
+      { "drugWithdrawn": "Text Field21", "doseIncreased": "Text Field22", "doseReduced": "Text Field23", "doseNotChanged": "Text Field24", "notApplicable": "Text Field25", "unknown": "Text Field26" },
+      { "drugWithdrawn": "Text Field94", "doseIncreased": "Text Field97", "doseReduced": "Text Field100", "doseNotChanged": "Text Field103", "notApplicable": "Text Field106", "unknown": "Text Field109" },
+      { "drugWithdrawn": "Text Field95", "doseIncreased": "Text Field98", "doseReduced": "Text Field101", "doseNotChanged": "Text Field104", "notApplicable": "Text Field107", "unknown": "Text Field110" },
+      { "drugWithdrawn": "Text Field96", "doseIncreased": "Text Field99", "doseReduced": "Text Field102", "doseNotChanged": "Text Field105", "notApplicable": "Text Field108", "unknown": "Text Field111" }
+    ]
+  },
+  "reactionReappearedOnReintroduction": {
+    "section": "C, item 10 (rows follow the suspected medicine rows)",
+    "rows": [
+      { "yes": "Text Field27", "no": "Text Field28", "effectUnknown": "Text Field29", "reintroducedDose": "Text Field30" },
+      { "yes": "Text Field74", "no": "Text Field73", "effectUnknown": "Text Field79", "reintroducedDose": "Text Field82" },
+      { "yes": "Text Field75", "no": "Text Field77", "effectUnknown": "Text Field80", "reintroducedDose": "Text Field83" },
+      { "yes": "Text Field76", "no": "Text Field78", "effectUnknown": "Text Field81", "reintroducedDose": "Text Field84" }
+    ]
+  },
+  "concomitantProducts": {
+    "section": "C, item 11 (exclude products used to treat the reaction)",
+    "rows": [
+      { "name": "Text Field31", "dose": "Text Field32", "route": "Text Field33", "frequency": "Text Field34", "dateStarted": "Text Field35", "dateStopped": "Text Field36", "indication": "Text Field37" },
+      { "name": "Text Field112", "dose": "Text Field114", "route": "Text Field116", "frequency": "Text Field118", "dateStarted": "Text Field120", "dateStopped": "Text Field122", "indication": "Text Field124" },
+      { "name": "Text Field113", "dose": "Text Field115", "route": "Text Field117", "frequency": "Text Field119", "dateStarted": "Text Field121", "dateStopped": "Text Field123", "indication": "Text Field125" }
+    ]
+  },
+  "neverFillAutomatically": {
+    "amcUse.regIpdOpdCrNo": "Text Field3",
+    "amcUse.amcReportNo": "Text Field2",
+    "amcUse.worldwideUniqueNo": "Text Field4",
+    "receivingPersonnel.signatureImage": "Image Field0",
+    "receivingPersonnel.nameOrDate": "Text Field47"
+  }
+}
