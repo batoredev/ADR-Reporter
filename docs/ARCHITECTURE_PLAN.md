@@ -3,7 +3,7 @@
 **Status:**
 - Plan approved with changes (revision 2, 22/10/2026).
 - Each build step starts only after explicit approval, and stops for review when done.
-- Step 1 (Foundation) is built and awaiting review. Step 2 has not started.
+- Steps 1–6 are built, tested and pushed (25/10/2026). After Step 1 the remaining steps were approved together ("finish the entire project").
 
 | | |
 |---|---|
@@ -346,9 +346,9 @@ Requirements: Node.js 22+, PostgreSQL 16 (installed, or via the included docker-
 
 npm install
 cp .env.example .env          # set DATABASE_URL (AI_* settings needed from Step 3)
-npm run db:setup              # create tables + load fictional demo data
+npm run db:init               # create tables + load fictional demo data
 npm run dev                   # open http://localhost:3000
-npm test                      # unit tests;  npm run test:e2e for browser tests
+npm test                      # unit + database tests;  npm run test:e2e for browser tests
 ```
 
 ---

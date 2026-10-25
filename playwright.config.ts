@@ -26,6 +26,7 @@ export default defineConfig({
     url: `http://localhost:${PORT}/login`,
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { DATABASE_URL: testDatabaseUrl },
+    // The saved test fixture stands in for the AI provider, so tests need no API key or network.
+    env: { DATABASE_URL: testDatabaseUrl, AI_PROVIDER: "fixture", DEMO_MODE: "true" },
   },
 });

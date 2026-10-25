@@ -14,13 +14,37 @@ AI-assisted adverse drug reaction (ADR) reporting and institutional verification
 | Step                            | Scope                                                                                        | Status   |
 | ------------------------------- | -------------------------------------------------------------------------------------------- | -------- |
 | 1. Foundation                   | Setup, design style, database, fictional demo data, login, role-based navigation, dashboard  | **Done** |
-| 2. Structured reporting         | PvPI form sections A–D, drafts, validation, submission                                       | Planned  |
-| 3. AI prescription demo         | Upload, extraction, verification, field population                                           | Planned  |
-| 4. Review workflow + escalation | Shared queue, claim/release/reassign, checklist, comments, approve/return, urgent escalation | Planned  |
-| 5. PDF + external tracking      | Filled official PvPI form, external submission records                                       | Planned  |
-| 6. End-to-end check             | Full browser test suite and sign-off                                                         | Planned  |
+| 2. Structured reporting         | PvPI form sections A–D, drafts, validation, submission                                       | **Done** |
+| 3. AI prescription demo         | Upload, extraction, verification, field population                                           | **Done** |
+| 4. Review workflow + escalation | Shared queue, claim/release/reassign, checklist, comments, approve/return, urgent escalation | **Done** |
+| 5. PDF + external tracking      | Filled official PvPI form, external submission records                                       | **Done** |
+| 6. End-to-end check             | Unit, database and browser test suites                                                       | **Done** |
 
-Pages for later steps are visible in the menu but show "Not built yet". They still enforce access rules.
+## What it does
+
+1. **Report.** A reporter fills the PvPI form sections A–D. Drafts save automatically. Dates can be exact, month and
+   year, year only, or approximate, and the official form never gets a made-up day. Fields that are genuinely unknown
+   can be marked "Unknown". A completeness panel lists the mandatory fields that are still missing.
+2. **AI help with prescriptions.** Upload a photo or PDF of a prescription and select **Extract medicines**. Each
+   suggested value shows the text it was read from. Unclear values must be confirmed by a person before they are used.
+   Nothing is added until the reporter checks it. Values that came from a document keep a link to it, so reviewers can
+   see where they came from.
+3. **Urgent escalation.** A potentially serious report can be escalated at any time, even as an incomplete draft. The
+   designated urgent contacts are alerted without waiting for review. They acknowledge it, record any urgent
+   notification made outside the app, and close it.
+4. **Institutional review.** Submitted reports enter a shared queue, potentially serious ones first. A reviewer takes
+   one up; two reviewers can never hold the same case. The reviewer works through a six-item checklist and raises issues
+   on specific fields. An item can be marked as verified with an exception when information is genuinely unavailable.
+   The reviewer then approves, or returns the report to the reporter. A returned report comes back to the same reviewer
+   with the changed fields highlighted. Cases can be released to the pool or reassigned.
+5. **Official PDF.** Approval fills the official PvPI form v1.4 and stores that PDF once, with a fingerprint (SHA-256
+   hash). AMC/NCC-only identifiers, causality, receiving personnel and signatures are always left blank. Anything that
+   does not fit goes on a continuation sheet. Earlier versions can be previewed as drafts.
+6. **External submission tracking.** The app never sends reports itself. Coordinators record how and when the
+   approved PDF was sent to the AMC or NCC, and any acknowledgement. Reviewers can see this list but cannot record on
+   it.
+
+Every action is written to an append-only audit log, shown as each case's timeline.
 
 ## Run it on your computer
 
@@ -55,6 +79,19 @@ npm run dev                 # starts the app
 
 Open <http://localhost:3000>.
 
+### AI prescription extraction (optional)
+
+Set the provider in `.env`:
+
+| `AI_PROVIDER` | What happens                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------- |
+| `none`        | AI extraction shows as unavailable (default). Everything else works.                                 |
+| `anthropic`   | Uses Claude. Put your key in `AI_API_KEY`. `AI_MODEL` chooses the model (default `claude-opus-5-5`). |
+| `fixture`     | Returns saved results for the clean sample prescription. No key or network needed; used by tests.    |
+
+Fictional prescriptions to try are in [`samples/prescriptions/`](samples/prescriptions/). One is clean and one is a
+blurred, rotated scan. Never upload real prescriptions.
+
 If you used a different database user, password or port, edit `DATABASE_URL` and `TEST_DATABASE_URL` in `.env` first.
 
 ### 4. Sign in
@@ -86,13 +123,21 @@ The login page lists every demo account. Select one to sign in. All accounts use
 | ADR-007 | Draft, potentially serious, urgently escalated  |
 | ADR-008 | Externally submitted and acknowledged           |
 
+**Try the whole flow:**
+
+1. As `pharmacist@demo.test`, start a new report, fill a few fields and upload a sample prescription.
+2. As `hod@demo.test`, open **Review queue**, take up the report, raise an issue and return it.
+3. As the pharmacist, correct and resubmit it.
+4. As the HoD again, resume, close the issue, complete the checklist and approve.
+5. As `amc.coordinator@demo.test`, record the submission and acknowledgement under **External submissions**.
+
 ## Tests
 
 ```bash
 npm run test:db:init        # once: prepares the separate test database (never touches your data)
-npm test                    # unit and database tests
+npm test                    # unit and database tests (each run adds a few fictional cases to the test database)
 npx playwright install chromium   # once: downloads the test browser
-npm run test:e2e            # browser tests (starts its own server on port 3100)
+npm run test:e2e            # browser tests (starts its own server on port 3100, with AI_PROVIDER=fixture)
 ```
 
 Other checks: `npm run lint`, `npm run typecheck`, `npm run format:check`, `npm run build`.
@@ -111,10 +156,15 @@ npm run db:reset
 ```
 docs/                 plan, official PvPI form, verified field map
 prisma/               database schema, migrations, fictional seed data
-src/app/              pages (login, dashboard, …)
+samples/              fictional prescriptions for the AI demo
+src/app/              pages and server actions (reports, review, escalations, submissions, …)
 src/components/       interface components (shadcn/ui based)
-src/lib/domain/       shared rules: dates, seriousness, access, labels
-src/server/           server-only code: database, sessions, audit log, queries
+src/lib/domain/       shared rules: form, dates, completeness, seriousness, access, labels
+src/server/workflow/  case lifecycle: drafts, review, escalation, submissions, extraction
+src/server/pdf/       fills the official PvPI form
+src/server/ai/        AI providers (anthropic, fixture)
+src/server/           database, sessions, audit log, file storage
+storage/              uploaded documents and approved PDFs (created on first use, not committed)
 tests/                unit, integration (database) and browser tests
 ```
 
@@ -122,9 +172,14 @@ tests/                unit, integration (database) and browser tests
 
 - **Passwords and sessions:** passwords are stored as bcrypt hashes. Sessions are random tokens; only their hash is
   stored in the database. Cookies are httpOnly.
-- **Access checks:** every page checks the signed-in user and their role on the server.
+- **Access checks:** every page and every server action checks the signed-in user, their role and the case state on
+  the server. Two people editing the same draft cannot overwrite each other.
+- **Uploads:** files up to 10 MB. The type is checked from the file contents (PNG, JPEG or PDF only). Files are
+  stored outside the public folder and served only to people who may view the case.
+- **AI:** suggestions are never written into a report without a person checking them. Each extraction records the
+  provider and model used.
 - **Audit log:** append-only. The database rejects any attempt to edit or delete it, and also blocks edits to frozen
-  report versions.
+  report versions. Approved PDFs are stored with a SHA-256 hash.
 - **Demo password:** the login page shows it. Set `DEMO_MODE=false` in `.env` to hide the demo account list.
 - **Not production-ready:** this is a local prototype. Hosting, institutional login, cloud storage and legal or
   regulatory review are out of scope.

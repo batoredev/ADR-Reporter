@@ -256,10 +256,9 @@ export async function approvalBlockers(
   versionNo: number,
   client: Prisma.TransactionClient | typeof db = db,
 ) {
-  const [items, openIssues] = await Promise.all([
-    client.reviewChecklistItem.findMany({ where: { caseId, versionNo }, select: { item: true } }),
-    client.reviewComment.count({ where: { caseId, kind: "ISSUE", issueStatus: "OPEN" } }),
-  ]);
+  // Sequential: inside a transaction both queries share one connection.
+  const items = await client.reviewChecklistItem.findMany({ where: { caseId, versionNo }, select: { item: true } });
+  const openIssues = await client.reviewComment.count({ where: { caseId, kind: "ISSUE", issueStatus: "OPEN" } });
   const done = new Set(items.map((i) => i.item));
   const missing = CHECKLIST_KEYS.filter((k) => !done.has(k));
   return { missingChecklist: missing, openIssues };

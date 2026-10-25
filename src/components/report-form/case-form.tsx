@@ -764,7 +764,7 @@ function SaveIndicator({ state, dirty }: { state: SaveState; dirty: boolean }) {
         {new Date(state.at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false })}
       </p>
     );
-  return <p className="text-[13px] text-muted-foreground">Changes save automatically.</p>;
+  return <p className="text-[13px] text-muted-foreground">All changes saved · saves automatically</p>;
 }
 
 function CompletenessPanel({

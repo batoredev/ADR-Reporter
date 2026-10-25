@@ -72,8 +72,10 @@ test("pages are protected on the server, not only hidden from the menu", async (
   await expect(page.getByRole("heading", { name: "Review queue" })).toBeVisible();
 });
 
+// Other tests add cases, so these look only at the seeded ones (ADR-001 to ADR-008).
 test("a reporter's dashboard lists only their own reports", async ({ page }) => {
   await signInAs(page, "Demo Clinical Pharmacist");
+  await page.goto("/dashboard?q=ADR-00");
   const table = page.getByRole("table");
   for (const own of ["ADR-001", "ADR-002", "ADR-004", "ADR-006", "ADR-008"]) {
     await expect(table.getByRole("cell", { name: own, exact: true })).toBeVisible();
@@ -85,7 +87,8 @@ test("a reporter's dashboard lists only their own reports", async ({ page }) => 
 
 test("reviewers see the pool without other people's drafts, serious cases first on request", async ({ page }) => {
   await signInAs(page, "Demo HoD, Pharmacy Practice");
-  await expect(page.getByText("1 open urgent escalation")).toBeVisible();
+  await expect(page.getByText(/\d+ open urgent escalations?/)).toBeVisible();
+  await page.goto("/dashboard?q=ADR-00");
   const table = page.getByRole("table");
   await expect(table.getByRole("cell", { name: "ADR-002", exact: true })).toHaveCount(0);
   await expect(table.getByRole("cell", { name: "ADR-007", exact: true })).toHaveCount(0);

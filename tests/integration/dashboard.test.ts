@@ -1,34 +1,17 @@
 // Reads the seeded test database (TEST_DATABASE_URL). Run `npm run test:db:init` once first.
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CurrentUser } from "@/server/auth/current-user";
+import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/server/db";
-import { getDashboard } from "@/server/dashboard";
+import { getDashboard, visibleCasesWhere } from "@/server/dashboard";
+import { hasTestDb, SEEDED, userFor } from "./helpers";
 
-const hasTestDb = Boolean(process.env.TEST_DATABASE_URL);
-
-async function userFor(email: string): Promise<CurrentUser> {
-  const u = await db.user.findUniqueOrThrow({ where: { email }, include: { institution: true } });
-  return {
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    designation: u.designation,
-    roles: u.roles,
-    isUrgentContact: u.isUrgentContact,
-    canReassign: u.canReassign,
-    institutionId: u.institutionId,
-    institutionName: u.institution.name,
-    department: u.institution.department,
-  };
-}
-
+// Visibility is checked on the seeded cases; other tests may add cases of their own.
 const caseNumbers = async (email: string) =>
-  (await getDashboard(await userFor(email), { sort: "activity" })).recent.map((c) => c.caseNumber).sort();
+  (await db.adrCase.findMany({ where: visibleCasesWhere(await userFor(email)), select: { caseNumber: true } }))
+    .map((c) => c.caseNumber)
+    .filter((n) => SEEDED.has(n))
+    .sort();
 
 describe.skipIf(!hasTestDb)("dashboard visibility (seeded test database)", () => {
-  beforeAll(async () => {
-    expect(await db.adrCase.count()).toBe(8);
-  });
   afterAll(() => db.$disconnect());
 
   it("shows a reporter only their own reports, including drafts", async () => {
@@ -42,7 +25,9 @@ describe.skipIf(!hasTestDb)("dashboard visibility (seeded test database)", () =>
   });
 
   it("counts open urgent escalations only for urgent contacts", async () => {
-    expect((await getDashboard(await userFor("hod@demo.test"), { sort: "activity" })).metrics.openEscalations).toBe(1);
+    expect(
+      (await getDashboard(await userFor("hod@demo.test"), { sort: "activity" })).metrics.openEscalations,
+    ).toBeGreaterThanOrEqual(1);
     expect(
       (await getDashboard(await userFor("consultant@demo.test"), { sort: "activity" })).metrics.openEscalations,
     ).toBeNull();
@@ -50,15 +35,20 @@ describe.skipIf(!hasTestDb)("dashboard visibility (seeded test database)", () =>
 
   it("sorts potentially serious cases first when asked", async () => {
     const { recent } = await getDashboard(await userFor("hod@demo.test"), { sort: "serious" });
-    expect(recent[0].caseNumber).toBe("ADR-006");
+    const flags = recent.map((c) => c.isPotentiallySerious);
+    expect(flags[0]).toBe(true);
+    expect(flags.indexOf(false) === -1 || flags.slice(flags.indexOf(false)).every((f) => !f)).toBe(true);
   });
 
   it("filters by status and search text", async () => {
     const hod = await userFor("hod@demo.test");
-    expect((await getDashboard(hod, { sort: "activity", status: "RETURNED" })).recent.map((c) => c.caseNumber)).toEqual(
-      ["ADR-004"],
-    );
-    expect((await getDashboard(hod, { sort: "activity", q: "amoxi" })).recent.map((c) => c.caseNumber)).toEqual([
+    const returned = (await getDashboard(hod, { sort: "activity", status: "RETURNED" })).recent;
+    expect(returned.every((c) => c.status === "RETURNED")).toBe(true);
+    expect(returned.map((c) => c.caseNumber)).toContain("ADR-004");
+    // Ciprofloxacin appears only in the seeded data, so the result cannot be crowded out by test cases.
+    const cipro = (await getDashboard(hod, { sort: "activity", q: "ciproflox" })).recent;
+    expect(cipro.map((c) => c.caseNumber)).toEqual(["ADR-004"]);
+    expect((await getDashboard(hod, { sort: "activity", q: "ADR-001" })).recent.map((c) => c.caseNumber)).toEqual([
       "ADR-001",
     ]);
   });
