@@ -1,23 +1,42 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import type { Prisma } from "@/generated/prisma/client";
+import { db } from "@/server/db";
+import { onCloudflare } from "@/server/runtime";
 
-// Private local storage outside the public web folder. Files are only served
-// through routes that check the signed-in user's access to the case.
-const ROOT = path.join(process.cwd(), "storage");
+// Uploaded documents and approved PDFs are kept in the database (StoredFile),
+// so the app needs no disk and also runs on Cloudflare Workers. Files are only
+// served through routes that check the signed-in user's access to the case.
 const KEY = /^(uploads|pdfs)\/[0-9a-f-]{36}\.(png|jpg|pdf)$/;
+const MIME = { png: "image/png", jpg: "image/jpeg", pdf: "application/pdf" } as const;
 
-export async function saveFile(folder: "uploads" | "pdfs", extension: "png" | "jpg" | "pdf", bytes: Uint8Array) {
+/** Saves a file once; pass the transaction client to make the save part of a transaction. */
+export async function saveFile(
+  folder: "uploads" | "pdfs",
+  extension: "png" | "jpg" | "pdf",
+  bytes: Uint8Array,
+  client: Prisma.TransactionClient | typeof db = db,
+) {
   const key = `${folder}/${randomUUID()}.${extension}`;
-  await mkdir(path.join(ROOT, folder), { recursive: true });
-  await writeFile(path.join(ROOT, key), bytes, { flag: "wx" });
-  return { key, sha256: createHash("sha256").update(bytes).digest("hex") };
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  await client.storedFile.create({
+    data: { key, mimeType: MIME[extension], sizeBytes: bytes.length, sha256, bytes: new Uint8Array(bytes) },
+  });
+  return { key, sha256 };
 }
 
 export async function readStoredFile(key: string): Promise<Buffer> {
   if (!KEY.test(key)) throw new Error("Invalid storage key");
-  return readFile(path.join(ROOT, key));
+  const file = await db.storedFile.findUnique({ where: { key }, select: { bytes: true } });
+  if (file) return Buffer.from(file.bytes);
+  return readLegacyFile(key);
+}
+
+/** Files saved to the local storage/ folder by earlier versions of the app. */
+async function readLegacyFile(key: string): Promise<Buffer> {
+  if (onCloudflare()) throw new Error(`Stored file not found: ${key}`);
+  const [{ readFile }, path] = await Promise.all([import("node:fs/promises"), import("node:path")]);
+  return readFile(path.join(process.cwd(), "storage", key));
 }
 
 /** Detects the real file type from its first bytes; the file name is never trusted. */

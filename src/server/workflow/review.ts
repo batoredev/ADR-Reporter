@@ -294,7 +294,7 @@ export async function approveCase(user: CurrentUser, caseId: string) {
         generatedOn: ddmmyyyy(todayInAppZone(now)),
         fictional: isDemoMode(),
       });
-      const stored = await saveFile("pdfs", "pdf", pdf.bytes);
+      const stored = await saveFile("pdfs", "pdf", pdf.bytes, tx);
       await tx.caseVersion.create({
         data: {
           caseId: c.id,

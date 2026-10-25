@@ -20,7 +20,10 @@
     "db:init": "prisma migrate deploy && prisma db seed",
     "db:reset": "prisma migrate reset --force && prisma db seed",
     "test:db:init": "node scripts/with-test-db.mjs npm run db:init",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "cf:build": "node scripts/build-cloudflare.mjs",
+    "cf:preview": "node scripts/build-cloudflare.mjs && wrangler dev",
+    "cf:deploy": "node scripts/build-cloudflare.mjs && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.1.0",
@@ -45,6 +48,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.13",
     "@playwright/test": "1.56.1",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^22.20.5",
@@ -59,6 +63,7 @@
     "tailwindcss": "^4",
     "tsx": "4.23.15",
     "typescript": "^5",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "wrangler": "^4.152.0"
   }
 }

@@ -1,0 +1,27 @@
+// Cloudflare Workers configuration for the deployed app (see README, "Deploy to Cloudflare").
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "adr-reporter",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Keeps the compressed Worker under the 3 MiB limit of the Workers Free plan.
+  "minify": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  "observability": { "enabled": true },
+  // Plain settings. Secrets (DATABASE_URL, AI_API_KEY) are set with `npx wrangler secret put <NAME>`
+  // or in the Cloudflare dashboard, never here.
+  "vars": {
+    "DEMO_MODE": "true",
+    "SESSION_TTL_HOURS": "12",
+    "AI_PROVIDER": "none",
+    "AI_MODEL": "",
+  },
+  // Optional: connection pooling through Cloudflare Hyperdrive. Create one with
+  // `npx wrangler hyperdrive create adr-reporter --connection-string="<postgres url>"`
+  // and uncomment with its id; it is then used instead of DATABASE_URL.
+  // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<hyperdrive id>" }],
+}

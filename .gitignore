@@ -51,3 +51,9 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 /playwright/.cache/
+
+# Cloudflare build output
+/.open-next/
+/.wrangler/
+/public/forms/
+.dev.vars*

@@ -4,6 +4,7 @@
 - Plan approved with changes (revision 2, 22/10/2026).
 - Each build step starts only after explicit approval, and stops for review when done.
 - Steps 1–6 are built, tested and pushed (25/10/2026). After Step 1 the remaining steps were approved together ("finish the entire project").
+- Added on request after Step 6: deployment to Cloudflare Workers (OpenNext adapter, files stored in PostgreSQL, a hosted PostgreSQL database). See the README, "Deploy to Cloudflare".
 
 | | |
 |---|---|

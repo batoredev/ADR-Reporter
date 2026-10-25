@@ -659,3 +659,15 @@ model AuditLog {
   @@index([caseId, createdAt])
   @@index([institutionId, createdAt])
 }
+
+// Contents of uploaded documents and approved PDFs. Kept in the database so the
+// app needs no disk (it also runs on Cloudflare Workers). Rows are immutable:
+// a database trigger rejects updates and deletes.
+model StoredFile {
+  key       String   @id
+  mimeType  String
+  sizeBytes Int
+  sha256    String
+  bytes     Bytes
+  createdAt DateTime @default(now())
+}

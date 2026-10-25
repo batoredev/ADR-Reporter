@@ -151,6 +151,78 @@ npm run db:reset
 > ⚠️ This **permanently deletes everything** in the database named in `DATABASE_URL`, then reloads the fictional demo
 > data. Use it only on your local development database.
 
+## Deploy to Cloudflare
+
+The app runs on **Cloudflare Workers** through the OpenNext adapter. **Cloudflare Pages cannot run it.** Pages hosts
+static files, and this app needs a server for sign-in, the database and PDF generation. A Pages project connected to
+this repository only publishes the repository's files (the README, `package.json`, …), so delete it or disconnect it
+under **Workers & Pages → (the Pages project) → Settings**.
+
+### What you need
+
+- **The Cloudflare Workers Paid plan** (USD 5 a month). The Free plan allows 10 ms of CPU time per request. Checking a
+  password takes about 75 ms and generating a PDF takes longer, so sign-in and approval would fail on the Free plan.
+- **A PostgreSQL database reachable from the internet.** Cloudflare does not host PostgreSQL. Any provider works, for
+  example [Neon](https://neon.tech) (free tier) or [Supabase](https://supabase.com). Copy its connection string, with
+  `?sslmode=require` at the end.
+
+### 1. Create the tables and demo data in the hosted database
+
+From this folder on your computer (macOS/Linux shown; on Windows set the variable with `set DATABASE_URL=...` first):
+
+```bash
+DATABASE_URL="postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require" npm run db:init
+```
+
+### 2. Deploy
+
+**Option A: automatic deploys from GitHub (Workers Builds).** In the Cloudflare dashboard open **Workers & Pages →
+Create → Import a repository** and choose this repository. Then set:
+
+| Setting        | Value                                                  |
+| -------------- | ------------------------------------------------------ |
+| Project name   | `adr-reporter` (must match `name` in `wrangler.jsonc`) |
+| Build command  | `npm run cf:build`                                     |
+| Deploy command | `npx opennextjs-cloudflare deploy`                     |
+
+After the project is created, open **Settings → Variables and Secrets** and add a **secret** named `DATABASE_URL` with
+the connection string. Then retry the deployment. Every push to the production branch deploys again.
+
+**Option B: deploy from your computer.**
+
+```bash
+npx wrangler login                    # once
+npx wrangler secret put DATABASE_URL  # paste the connection string
+npm run cf:deploy
+```
+
+The app is then live at `https://adr-reporter.<your-subdomain>.workers.dev`.
+
+### Settings on Cloudflare
+
+Plain settings are in `wrangler.jsonc` under `vars` (`DEMO_MODE`, `SESSION_TTL_HOURS`, `AI_PROVIDER`, `AI_MODEL`).
+To turn on AI extraction, set `AI_PROVIDER` to `anthropic` and add a secret `AI_API_KEY`.
+
+For faster database access, put [Hyperdrive](https://developers.cloudflare.com/hyperdrive/) (Cloudflare's connection
+pooler, free) in front of the database: run
+`npx wrangler hyperdrive create adr-reporter --connection-string="<connection string>"`, then uncomment the
+`hyperdrive` block in `wrangler.jsonc` with the id it prints. The app uses it instead of `DATABASE_URL`.
+
+### Try the Cloudflare build locally
+
+```bash
+cp .env.example .dev.vars   # then keep only DATABASE_URL and any AI_* lines
+npm run cf:preview          # builds, then serves it on http://localhost:8787 in Cloudflare's runtime
+```
+
+### How the Cloudflare build differs
+
+- `npm run cf:build` (`scripts/build-cloudflare.mjs`) generates the Prisma client for Cloudflare's runtime, which loads
+  its query engine as a WebAssembly module. Afterwards it restores the normal client for local development.
+- Uploaded documents and approved PDFs are stored in the database (the `StoredFile` table), because Workers have no
+  disk. Local development stores them the same way.
+- On Workers, each request gets its own database connection; connections are never shared between requests.
+
 ## Project layout
 
 ```
@@ -163,8 +235,9 @@ src/lib/domain/       shared rules: form, dates, completeness, seriousness, acce
 src/server/workflow/  case lifecycle: drafts, review, escalation, submissions, extraction
 src/server/pdf/       fills the official PvPI form
 src/server/ai/        AI providers (anthropic, fixture)
-src/server/           database, sessions, audit log, file storage
-storage/              uploaded documents and approved PDFs (created on first use, not committed)
+src/server/           database, sessions, audit log, file storage (in the database)
+scripts/              test-database helper, Cloudflare build
+wrangler.jsonc        Cloudflare Workers configuration
 tests/                unit, integration (database) and browser tests
 ```
 
@@ -175,11 +248,14 @@ tests/                unit, integration (database) and browser tests
 - **Access checks:** every page and every server action checks the signed-in user, their role and the case state on
   the server. Two people editing the same draft cannot overwrite each other.
 - **Uploads:** files up to 10 MB. The type is checked from the file contents (PNG, JPEG or PDF only). Files are
-  stored outside the public folder and served only to people who may view the case.
+  stored in the database, never in a public folder, and served only to people who may view the case. Stored files
+  cannot be changed or deleted.
 - **AI:** suggestions are never written into a report without a person checking them. Each extraction records the
   provider and model used.
 - **Audit log:** append-only. The database rejects any attempt to edit or delete it, and also blocks edits to frozen
   report versions. Approved PDFs are stored with a SHA-256 hash.
-- **Demo password:** the login page shows it. Set `DEMO_MODE=false` in `.env` to hide the demo account list.
-- **Not production-ready:** this is a local prototype. Hosting, institutional login, cloud storage and legal or
-  regulatory review are out of scope.
+- **Demo password:** the login page shows it. Set `DEMO_MODE=false` in `.env` (or in the Cloudflare variables) to hide
+  the demo account list. On a public deployment, anyone with the link can sign in with the demo accounts, so it must
+  only ever hold fictional data.
+- **Not production-ready:** this is a prototype. Institutional login and legal or regulatory review are out of
+  scope.
