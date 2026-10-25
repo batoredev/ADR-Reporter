@@ -28,9 +28,9 @@ model Institution {
   urgentAckTargetMinutes Int?
   createdAt              DateTime @default(now())
 
-  users      User[]
-  cases      AdrCase[]
-  auditLogs  AuditLog[]
+  users     User[]
+  cases     AdrCase[]
+  auditLogs AuditLog[]
 }
 
 enum Role {
@@ -40,48 +40,48 @@ enum Role {
 }
 
 model User {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   institutionId   String
-  email           String   @unique
+  email           String    @unique
   name            String
   passwordHash    String
-  roles           Role[]
+  roles           Role[]    @default([])
   designation     String?
   occupation      String?
   address         String?
   pin             String?
   phone           String?
   // Explicitly assigned authorities (never inferred from a job title).
-  isUrgentContact Boolean  @default(false)
-  canReassign     Boolean  @default(false)
-  isActive        Boolean  @default(true)
+  isUrgentContact Boolean   @default(false)
+  canReassign     Boolean   @default(false)
+  isActive        Boolean   @default(true)
   lastLoginAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   institution Institution @relation(fields: [institutionId], references: [id])
   sessions    Session[]
 
-  reportedCases        AdrCase[]             @relation("CaseReporter")
-  assignedCases        AdrCase[]             @relation("CaseAssignee")
-  versionsCreated      CaseVersion[]
-  assignmentsActed     CaseAssignment[]      @relation("AssignmentActor")
-  assignmentsFrom      CaseAssignment[]      @relation("AssignmentFrom")
-  assignmentsTo        CaseAssignment[]      @relation("AssignmentTo")
-  checklistItems       ReviewChecklistItem[]
-  comments             ReviewComment[]       @relation("CommentAuthor")
-  commentsResolved     ReviewComment[]       @relation("CommentResolver")
-  decisions            ReviewDecision[]
-  escalationsRaised    UrgentEscalation[]    @relation("EscalationRaisedBy")
-  escalationsAcked     UrgentEscalation[]    @relation("EscalationAckedBy")
-  escalationsClosed    UrgentEscalation[]    @relation("EscalationClosedBy")
-  submissionsRecorded  ExternalSubmission[]  @relation("SubmissionRecordedBy")
-  acknowledgementsRecorded ExternalSubmission[] @relation("AcknowledgementRecordedBy")
-  documentsUploaded    UploadedDocument[]
-  extractionRuns       ExtractionRun[]
-  extractedItemsDecided ExtractedItem[]
-  provenanceVerified   FieldProvenance[]
-  auditLogs            AuditLog[]
+  reportedCases            AdrCase[]             @relation("CaseReporter")
+  assignedCases            AdrCase[]             @relation("CaseAssignee")
+  versionsCreated          CaseVersion[]
+  assignmentsActed         CaseAssignment[]      @relation("AssignmentActor")
+  assignmentsFrom          CaseAssignment[]      @relation("AssignmentFrom")
+  assignmentsTo            CaseAssignment[]      @relation("AssignmentTo")
+  checklistItems           ReviewChecklistItem[]
+  comments                 ReviewComment[]       @relation("CommentAuthor")
+  commentsResolved         ReviewComment[]       @relation("CommentResolver")
+  decisions                ReviewDecision[]
+  escalationsRaised        UrgentEscalation[]    @relation("EscalationRaisedBy")
+  escalationsAcked         UrgentEscalation[]    @relation("EscalationAckedBy")
+  escalationsClosed        UrgentEscalation[]    @relation("EscalationClosedBy")
+  submissionsRecorded      ExternalSubmission[]  @relation("SubmissionRecordedBy")
+  acknowledgementsRecorded ExternalSubmission[]  @relation("AcknowledgementRecordedBy")
+  documentsUploaded        UploadedDocument[]
+  extractionRuns           ExtractionRun[]
+  extractedItemsDecided    ExtractedItem[]
+  provenanceVerified       FieldProvenance[]
+  auditLogs                AuditLog[]
 
   @@index([institutionId])
 }
@@ -160,21 +160,21 @@ enum Outcome {
 }
 
 model AdrCase {
-  id            String     @id @default(cuid())
-  institutionId String
-  caseNumber    String
-  status        CaseStatus @default(DRAFT)
-  reporterId    String
-  assigneeId    String?
-  claimedAt     DateTime?
-  firstSubmittedAt DateTime?
-  lastSubmittedAt  DateTime?
-  approvedAt    DateTime?
-  currentVersion Int       @default(0)
+  id                   String     @id @default(cuid())
+  institutionId        String
+  caseNumber           String
+  status               CaseStatus @default(DRAFT)
+  reporterId           String
+  assigneeId           String?
+  claimedAt            DateTime?
+  firstSubmittedAt     DateTime?
+  lastSubmittedAt      DateTime?
+  approvedAt           DateTime?
+  currentVersion       Int        @default(0)
   // Optimistic concurrency: every write checks and increments this.
-  lockVersion   Int        @default(0)
+  lockVersion          Int        @default(0)
   // Derived from seriousAnswer / seriousnessCriteria on every save; stored for sorting.
-  isPotentiallySerious Boolean @default(false)
+  isPotentiallySerious Boolean    @default(false)
 
   // A. Patient information
   patientInitials   String?
@@ -190,30 +190,32 @@ model AdrCase {
   reactionDescription     String?
   reactionManagement      String?
   reactionStartDate       String?
-  reactionStartDateApprox Boolean @default(false)
+  reactionStartDateApprox Boolean                @default(false)
   reactionStopDate        String?
-  reactionStopDateApprox  Boolean @default(false)
-  reactionOngoing         Boolean @default(false)
+  reactionStopDateApprox  Boolean                @default(false)
+  reactionOngoing         Boolean                @default(false)
   medicalHistory          String?
-  historyFlags            HistoryFlag[]
+  historyFlags            HistoryFlag[]          @default([])
   seriousAnswer           SeriousAnswer?
-  seriousnessCriteria     SeriousnessCriterion[]
+  seriousnessCriteria     SeriousnessCriterion[] @default([])
   deathDate               String?
-  deathDateApprox         Boolean @default(false)
+  deathDateApprox         Boolean                @default(false)
   outcome                 Outcome?
   additionalInformation   String?
 
   // Fields the reporter explicitly marked "Unknown" (printed as "Unknown").
-  unknownFields String[]
+  unknownFields String[] @default([])
 
   // D. Reporter details, snapshotted from the profile at submission.
-  reporterName       String?
-  reporterAddress    String?
-  reporterPin        String?
-  reporterEmail      String?
-  reporterPhone      String?
-  reporterOccupation String?
-  reportDate         String?
+  reporterName          String?
+  reporterAddress       String?
+  reporterPin           String?
+  reporterEmail         String?
+  reporterPhone         String?
+  reporterOccupation    String?
+  reportDate            String?
+  // When the reporter last accepted the submission declaration.
+  declarationAcceptedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -251,7 +253,7 @@ model Investigation {
   result        String?
   date          String?
   dateApprox    Boolean  @default(false)
-  unknownFields String[]
+  unknownFields String[] @default([])
 
   adrCase AdrCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
@@ -295,7 +297,7 @@ model SuspectedMedicine {
   actionTaken      ActionTaken?
   rechallenge      Rechallenge?
   rechallengeDose  String?
-  unknownFields    String[]
+  unknownFields    String[]     @default([])
 
   adrCase AdrCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
@@ -318,7 +320,7 @@ model ConcomitantProduct {
   indication          String?
   // Item 11 excludes products used to treat the reaction; these print under item 7.
   usedToTreatReaction Boolean  @default(false)
-  unknownFields       String[]
+  unknownFields       String[] @default([])
 
   adrCase AdrCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
@@ -336,14 +338,17 @@ enum VersionReason {
 }
 
 model CaseVersion {
-  id          String        @id @default(cuid())
-  caseId      String
-  versionNo   Int
-  reason      VersionReason
+  id            String        @id @default(cuid())
+  caseId        String
+  versionNo     Int
+  reason        VersionReason
   // Frozen copy of the whole case at this moment; never updated.
-  snapshot    Json
-  createdById String
-  createdAt   DateTime      @default(now())
+  snapshot      Json
+  // Approved versions keep the exact PDF that was frozen at approval.
+  pdfStorageKey String?
+  pdfSha256     String?
+  createdById   String
+  createdAt     DateTime      @default(now())
 
   adrCase   AdrCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
   createdBy User    @relation(fields: [createdById], references: [id])
@@ -543,8 +548,8 @@ model UploadedDocument {
   storageKey   String   @unique
   createdAt    DateTime @default(now())
 
-  adrCase    AdrCase         @relation(fields: [caseId], references: [id], onDelete: Restrict)
-  uploadedBy User            @relation(fields: [uploadedById], references: [id])
+  adrCase    AdrCase           @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  uploadedBy User              @relation(fields: [uploadedById], references: [id])
   runs       ExtractionRun[]
   provenance FieldProvenance[]
 
@@ -602,8 +607,8 @@ model ExtractedItem {
   targetKind      String?
   targetRowId     String?
 
-  run       ExtractionRun     @relation(fields: [runId], references: [id], onDelete: Restrict)
-  decidedBy User?             @relation(fields: [decidedById], references: [id])
+  run        ExtractionRun     @relation(fields: [runId], references: [id], onDelete: Restrict)
+  decidedBy  User?             @relation(fields: [decidedById], references: [id])
   provenance FieldProvenance[]
 
   @@index([runId])

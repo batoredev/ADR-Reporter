@@ -47,3 +47,26 @@ export function formatElapsed(from: Date, now: Date = new Date()): string {
   const rest = hours % 24;
   return rest ? `${days} d ${rest} h` : `${days} d`;
 }
+
+const isoDate = new Intl.DateTimeFormat("en-CA", { timeZone: APP_TIME_ZONE });
+
+/** Today's date in the institution's time zone, as "YYYY-MM-DD". */
+export function todayInAppZone(now: Date = new Date()): string {
+  return isoDate.format(now);
+}
+
+const localInput = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  timeZone: APP_TIME_ZONE,
+});
+
+/** The current time in the institution's time zone, as a datetime-local value "YYYY-MM-DDTHH:mm". */
+export function nowAsLocalInput(now: Date = new Date()): string {
+  const p = Object.fromEntries(localInput.formatToParts(now).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour === "24" ? "00" : p.hour}:${p.minute}`;
+}

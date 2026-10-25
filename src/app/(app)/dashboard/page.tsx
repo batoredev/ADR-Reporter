@@ -197,7 +197,11 @@ export default async function DashboardPage({ searchParams }: PageProps<"/dashbo
                   const medicine = c.suspectedMedicines[0]?.name;
                   return (
                     <TableRow key={c.id}>
-                      <TableCell className="font-medium">{c.caseNumber}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link href={`/reports/${c.id}`} className="text-primary underline-offset-2 hover:underline">
+                          {c.caseNumber}
+                        </Link>
+                      </TableCell>
                       <TableCell>{c.patientInitials ?? <NotEntered />}</TableCell>
                       <TableCell className="max-w-64">
                         <span className="block truncate" title={medicine ?? undefined}>

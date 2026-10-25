@@ -47,6 +47,8 @@
   --color-serious: var(--serious);
   --color-serious-soft: var(--serious-soft);
   --color-info-soft: var(--info-soft);
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -83,6 +85,9 @@
   --serious: #b91c1c;
   --serious-soft: #fef2f2;
   --info-soft: #eff6ff;
+  /* Values suggested from documents by AI (always verified by a person). */
+  --ai: #6d28d9;
+  --ai-soft: #f5f3ff;
   /* 0.45rem keeps component radii within the 6-10px range. */
   --radius: 0.45rem;
   --sidebar: #f8fafc;
