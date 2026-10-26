@@ -21,7 +21,10 @@ const npmSpecifiers = {
       if (path.startsWith("@/") || path.startsWith("node:") || path.startsWith("npm:")) return undefined;
       const parts = path.split("/");
       const name = path.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
-      const subpath = path.slice(name.length);
+      let subpath = path.slice(name.length);
+      // Prisma's Node.js runtime reads process.pid when it loads, which Supabase's Edge Runtime does not
+      // provide; its edge build has the same interface without that.
+      if (path === "@prisma/client/runtime/client") subpath = "/runtime/wasm-compiler-edge";
       return { path: `npm:${name}@${version(name)}${subpath}`, external: true };
     });
   },

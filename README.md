@@ -142,6 +142,20 @@ npm run test:e2e            # browser tests: builds the static site and starts t
 DENO_BIN=$(which deno) npm run test:e2e   # the same, with the API as the Edge Function bundle under Deno
 ```
 
+Supabase's Edge Runtime is stricter than plain Deno, so check `supabase/functions/api/index.ts` in it before deploying
+(needs Docker; the API then answers on <http://localhost:8100/api/health>):
+
+```bash
+npm run build:api
+docker run --rm --network host \
+  -v "$PWD/supabase/functions:/home/deno/functions" -v "$PWD/scripts/edge-runtime/main:/home/deno/main" \
+  -e SUPABASE_DB_URL="<TEST_DATABASE_URL from .env>" -e AI_PROVIDER=fixture \
+  -e FORM_TEMPLATE_URL=http://localhost:3100/forms/pvpi-adrrf-v1.4.pdf \
+  ghcr.io/supabase/edge-runtime:v1.77.8 start --main-service /home/deno/main --port 8100
+```
+
+With it running, the browser tests can use it in place of the API server Playwright would start.
+
 Other checks: `npm run lint`, `npm run typecheck`, `npm run format:check`, `npm run build`.
 
 ## Starting over with fresh demo data
