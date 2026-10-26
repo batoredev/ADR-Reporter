@@ -163,8 +163,12 @@ under **Workers & Pages → (the Pages project) → Settings**.
 - **The Cloudflare Workers Paid plan** (USD 5 a month). The Free plan allows 10 ms of CPU time per request. Checking a
   password takes about 75 ms and generating a PDF takes longer, so sign-in and approval would fail on the Free plan.
 - **A PostgreSQL database reachable from the internet.** Cloudflare does not host PostgreSQL. Any provider works, for
-  example [Neon](https://neon.tech) (free tier) or [Supabase](https://supabase.com). Copy its connection string, with
-  `?sslmode=require` at the end.
+  example [Supabase](https://supabase.com) or [Neon](https://neon.tech) (both have free tiers). Copy its connection
+  string, with `?sslmode=require` at the end.
+
+**With Supabase:** open your project, select **Connect**, and copy the **Session pooler** connection string (port 5432).
+Replace `[YOUR-PASSWORD]` with your database password and add `?sslmode=require`. Use this string in step 1 and for
+Hyperdrive below. The "Direct connection" string needs IPv6, which many networks lack, so use the pooler one.
 
 ### 1. Create the tables and demo data in the hosted database
 
@@ -204,9 +208,12 @@ Plain settings are in `wrangler.jsonc` under `vars` (`DEMO_MODE`, `SESSION_TTL_H
 To turn on AI extraction, set `AI_PROVIDER` to `anthropic` and add a secret `AI_API_KEY`.
 
 For faster database access, put [Hyperdrive](https://developers.cloudflare.com/hyperdrive/) (Cloudflare's connection
-pooler, free) in front of the database: run
-`npx wrangler hyperdrive create adr-reporter --connection-string="<connection string>"`, then uncomment the
-`hyperdrive` block in `wrangler.jsonc` with the id it prints. The app uses it instead of `DATABASE_URL`.
+pooler, included in every plan) in front of the database. This is the recommended setup with Supabase. Either run
+`npx wrangler hyperdrive create adr-reporter --connection-string="<connection string>"`, or create one in the
+dashboard under **Workers & Pages → Hyperdrive**. Then uncomment the `hyperdrive` block in `wrangler.jsonc`, put in
+the id it shows, and push. The app then uses Hyperdrive instead of the `DATABASE_URL` secret. (For `npm run cf:preview`
+with Hyperdrive enabled, also set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` to your local database
+URL.)
 
 ### Try the Cloudflare build locally
 
