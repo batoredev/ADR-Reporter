@@ -172,7 +172,10 @@ Hyperdrive below. The "Direct connection" string needs IPv6, which many networks
 
 ### 1. Create the tables and demo data in the hosted database
 
-From this folder on your computer (macOS/Linux shown; on Windows set the variable with `set DATABASE_URL=...` first):
+**On the Supabase website (no computer needed):** follow [`supabase/README.md`](supabase/README.md). You paste six SQL
+files into Supabase's SQL Editor, in order.
+
+**Or from this folder on your computer,** for any PostgreSQL provider (macOS/Linux shown; on Windows set the variable with `set DATABASE_URL=...` first):
 
 ```bash
 DATABASE_URL="postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require" npm run db:init
@@ -235,6 +238,7 @@ npm run cf:preview          # builds, then serves it on http://localhost:8787 in
 ```
 docs/                 plan, official PvPI form, verified field map
 prisma/               database schema, migrations, fictional seed data
+supabase/             the same database as SQL files for Supabase's SQL Editor (see supabase/README.md)
 samples/              fictional prescriptions for the AI demo
 src/app/              pages and server actions (reports, review, escalations, submissions, …)
 src/components/       interface components (shadcn/ui based)
