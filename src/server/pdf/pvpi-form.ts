@@ -41,7 +41,8 @@ const PROTECTED = new Set<string>([
 // The blank official form. Node.js (tests, local API) reads it from docs/reference;
 // the Edge Function installs a loader that fetches it from the website.
 let template: Uint8Array | null = null;
-let loader = async () => new Uint8Array(await readFile(path.join(process.cwd(), "docs/reference/ADRRF_2.pdf")));
+let loader: () => Promise<Uint8Array> = async () =>
+  new Uint8Array(await readFile(path.join(process.cwd(), "docs/reference/ADRRF_2.pdf")));
 
 export function setFormTemplateLoader(load: () => Promise<Uint8Array>) {
   loader = load;
