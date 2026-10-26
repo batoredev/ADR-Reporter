@@ -36,7 +36,9 @@ import {
   SERIOUSNESS_CRITERION_LABELS,
 } from "@/lib/domain/labels";
 import { isPotentiallySerious } from "@/lib/domain/seriousness";
-import { escalateAction, saveDraftAction } from "@/app/(app)/reports/actions";
+import { actions } from "@/lib/api/actions";
+import { refreshData } from "@/lib/api/use-api";
+import { pages } from "@/lib/routes";
 import {
   CheckboxGroup,
   fieldId,
@@ -139,7 +141,7 @@ export function CaseForm({
     }
     const run = (async () => {
       setSaveState({ kind: "saving" });
-      const result = await saveDraftAction(caseId, lockRef.current, snapshot);
+      const result = await actions.saveDraft(caseId, lockRef.current, snapshot);
       if (!result.ok) {
         setSaveState({ kind: "error", message: result.error });
         return false;
@@ -192,7 +194,7 @@ export function CaseForm({
 
   async function goToSubmit() {
     setNavigating(true);
-    if (await save()) router.push(`/reports/${caseId}/submit`);
+    if (await save()) router.push(pages.caseSubmit(caseId));
     else setNavigating(false);
   }
 
@@ -202,14 +204,14 @@ export function CaseForm({
       setEscalateError("Save the draft first (see the message at the bottom of the form).");
       return;
     }
-    const result = await escalateAction(caseId, escalateNote);
+    const result = await actions.escalate(caseId, escalateNote);
     if (!result.ok) {
       setEscalateError(result.error);
       return;
     }
     setEscalated(true);
     setEscalateOpen(false);
-    router.refresh();
+    refreshData();
   }
 
   const unknownCase = (field: string) => ({ listPath: "unknownFields" as FormPath, field });

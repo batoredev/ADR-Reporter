@@ -2,10 +2,9 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/server/db";
-import { onCloudflare } from "@/server/runtime";
 
 // Uploaded documents and approved PDFs are kept in the database (StoredFile),
-// so the app needs no disk and also runs on Cloudflare Workers. Files are only
+// so the app needs no disk and runs as a Supabase Edge Function. Files are only
 // served through routes that check the signed-in user's access to the case.
 const KEY = /^(uploads|pdfs)\/[0-9a-f-]{36}\.(png|jpg|pdf)$/;
 const MIME = { png: "image/png", jpg: "image/jpeg", pdf: "application/pdf" } as const;
@@ -28,15 +27,8 @@ export async function saveFile(
 export async function readStoredFile(key: string): Promise<Buffer> {
   if (!KEY.test(key)) throw new Error("Invalid storage key");
   const file = await db.storedFile.findUnique({ where: { key }, select: { bytes: true } });
-  if (file) return Buffer.from(file.bytes);
-  return readLegacyFile(key);
-}
-
-/** Files saved to the local storage/ folder by earlier versions of the app. */
-async function readLegacyFile(key: string): Promise<Buffer> {
-  if (onCloudflare()) throw new Error(`Stored file not found: ${key}`);
-  const [{ readFile }, path] = await Promise.all([import("node:fs/promises"), import("node:path")]);
-  return readFile(path.join(process.cwd(), "storage", key));
+  if (!file) throw new Error(`Stored file not found: ${key}`);
+  return Buffer.from(file.bytes);
 }
 
 /** Detects the real file type from its first bytes; the file name is never trusted. */

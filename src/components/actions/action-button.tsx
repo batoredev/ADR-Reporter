@@ -3,7 +3,8 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import type { ActionResult } from "@/server/workflow/errors";
+import type { ActionResult } from "@/lib/action-result";
+import { refreshData } from "@/lib/api/use-api";
 
 interface ActionButtonProps {
   action: () => Promise<ActionResult<unknown>>;
@@ -29,11 +30,11 @@ export function ActionButton({ action, children, variant, size, redirectTo, disa
       const result = await action();
       if (!result.ok) {
         setError(result.error);
-        router.refresh();
+        refreshData();
         return;
       }
       if (redirectTo) router.push(redirectTo);
-      else router.refresh();
+      else refreshData();
     });
   }
 

@@ -1,29 +1,10 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { FictionalDataBanner } from "@/components/fictional-data-banner";
-import { describeAccess } from "@/lib/domain/access";
-import { DEMO_ACCOUNTS, DEMO_PASSWORD, isDemoMode } from "@/lib/demo";
-import { getCurrentUser } from "@/server/auth/current-user";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-export default async function LoginPage() {
-  if (await getCurrentUser()) redirect("/dashboard");
-
-  const demo = isDemoMode();
-  const demoAccounts = demo
-    ? DEMO_ACCOUNTS.map((account) => ({
-        email: account.email,
-        name: account.name,
-        summary: describeAccess({
-          roles: account.roles,
-          isUrgentContact: account.isUrgentContact ?? false,
-          canReassign: account.canReassign ?? false,
-        }),
-      }))
-    : [];
-
+export default function LoginPage() {
   return (
     <div className="flex min-h-full flex-col bg-secondary">
       <FictionalDataBanner />
@@ -34,7 +15,7 @@ export default async function LoginPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
             <p className="text-muted-foreground">Suspected adverse drug reaction reporting and institutional review.</p>
           </div>
-          <LoginForm demoAccounts={demoAccounts} demoPassword={demo ? DEMO_PASSWORD : null} />
+          <LoginForm />
         </div>
       </main>
     </div>

@@ -1,3 +1,5 @@
+import { FileLink } from "@/components/data/protected-file";
+import { files } from "@/lib/routes";
 import type { ReactNode } from "react";
 import { FileText, PencilLine } from "lucide-react";
 import { cn } from "cn";
@@ -78,17 +80,15 @@ function Row({
             </span>
           ) : null}
           {source ? (
-            <a
-              href={`/api/cases/${source.caseId}/documents/${source.documentId}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-ai underline underline-offset-2"
+            <FileLink
+              path={files.document(source.caseId, source.documentId)}
+              className="text-xs text-ai underline underline-offset-2"
             >
               <FileText className="size-3" aria-hidden />
               From {source.documentName}
               {source.model ? ` · AI-suggested (${source.model})` : ""}
               {source.verifiedBy ? ` · verified by ${source.verifiedBy}` : ""}
-            </a>
+            </FileLink>
           ) : null}
           {issues ? (
             <span className="text-xs font-medium text-warning">

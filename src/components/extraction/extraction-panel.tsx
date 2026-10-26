@@ -1,19 +1,16 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AlertTriangle, FileText, Loader2, ScanText, Sparkles, Upload } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { useSaveDraft } from "@/components/report-form/form-context";
 import { inputClass } from "@/components/report-form/fields";
 import { DATE_FIELDS, EXTRACTED_FIELD_LABELS, FILLABLE, type ExtractedField } from "@/lib/domain/extraction";
-import {
-  applyExtractionAction,
-  runExtractionAction,
-  uploadDocumentAction,
-  type UploadedDocumentView,
-} from "@/app/(app)/reports/extraction-actions";
+import { FileLink, ProtectedFrame, useFileUrl } from "@/components/data/protected-file";
+import { actions, type UploadedDocumentView } from "@/lib/api/actions";
+import { refreshData } from "@/lib/api/use-api";
+import { files } from "@/lib/routes";
 import type { ExtractionView } from "@/server/workflow/extraction";
 import type { AiStatus } from "@/server/ai/provider";
 
@@ -54,7 +51,6 @@ export function ExtractionPanel({
   ai: AiStatus;
   documents: UploadedDocumentView[];
 }) {
-  const router = useRouter();
   const saveDraft = useSaveDraft();
   const fileRef = useRef<HTMLInputElement>(null);
   const [documents, setDocuments] = useState(initialDocuments);
@@ -75,7 +71,7 @@ export function ExtractionPanel({
     setMessage(null);
     const data = new FormData();
     data.set("file", file);
-    const result = await uploadDocumentAction(caseId, data);
+    const result = await actions.uploadDocument(caseId, data);
     setBusy(null);
     if (!result.ok) {
       setError(result.error);
@@ -91,7 +87,7 @@ export function ExtractionPanel({
     setError(null);
     setMessage(null);
     setRun(null);
-    const result = await runExtractionAction(caseId, documentId);
+    const result = await actions.runExtraction(caseId, documentId);
     setBusy(null);
     if (!result.ok) {
       setError(result.error);
@@ -133,7 +129,7 @@ export function ExtractionPanel({
         })),
       })),
     };
-    const result = await applyExtractionAction(caseId, run.runId, payload);
+    const result = await actions.applyExtraction(caseId, run.runId, payload);
     setBusy(null);
     if (!result.ok) {
       setError(result.error);
@@ -145,7 +141,7 @@ export function ExtractionPanel({
         ? `${result.data.added} medicine${result.data.added === 1 ? "" : "s"} added below. Each value is marked as coming from the document.`
         : "Nothing was added.",
     );
-    router.refresh();
+    refreshData();
   }
 
   const doc = run ? documents.find((d) => d.id === run.documentId) : null;
@@ -197,14 +193,9 @@ export function ExtractionPanel({
               key={d.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-1.5 text-sm"
             >
-              <a
-                href={`/api/cases/${caseId}/documents/${d.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
-              >
+              <FileLink path={files.document(caseId, d.id)}>
                 <FileText className="size-3.5" aria-hidden /> {d.name}
-              </a>
+              </FileLink>
               <Button
                 type="button"
                 size="sm"
@@ -247,14 +238,9 @@ export function ExtractionPanel({
             {doc ? (
               <div className="overflow-hidden rounded-md border bg-background xl:sticky xl:top-4 xl:self-start">
                 {doc.mimeType === "application/pdf" ? (
-                  <iframe title={doc.name} src={`/api/cases/${caseId}/documents/${doc.id}`} className="h-96 w-full" />
+                  <ProtectedFrame path={files.document(caseId, doc.id)} title={doc.name} className="h-96 w-full" />
                 ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={`/api/cases/${caseId}/documents/${doc.id}`}
-                    alt={`Uploaded document ${doc.name}`}
-                    className="w-full"
-                  />
+                  <DocumentImage path={files.document(caseId, doc.id)} name={doc.name} />
                 )}
               </div>
             ) : null}
@@ -378,4 +364,12 @@ export function ExtractionPanel({
       ) : null}
     </div>
   );
+}
+
+function DocumentImage({ path, name }: { path: string; name: string }) {
+  const { url, failed } = useFileUrl(path);
+  if (failed) return <p className="p-4 text-sm text-destructive">The document could not be loaded.</p>;
+  if (!url) return <div className="h-96 animate-pulse bg-secondary" aria-label="Loading document" />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={url} alt={`Uploaded document ${name}`} className="w-full" />;
 }

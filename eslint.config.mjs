@@ -25,9 +25,9 @@ const eslintConfig = defineConfig([
     "src/generated/**",
     "playwright-report/**",
     "test-results/**",
-    // Cloudflare build output:
-    ".open-next/**",
-    ".wrangler/**",
+    // Static site output and the generated Edge Function bundle:
+    "out/**",
+    "supabase/functions/api/index.ts",
   ]),
 ]);
 

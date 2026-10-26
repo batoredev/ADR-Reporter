@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { FileText, MessageSquare, MessageSquareWarning, Send, Siren } from "lucide-react";
 import { cn } from "cn";
+import { FileLink } from "@/components/data/protected-file";
+import { files } from "@/lib/routes";
 import type { CaseDetails } from "@/server/workflow/case-details";
 import { fieldLabel, rowOrder } from "@/lib/domain/case-fields";
 import { ISSUE_STATUS_LABELS, SUBMISSION_KIND_LABELS, SUBMISSION_METHOD_LABELS } from "@/lib/domain/labels";
@@ -169,14 +171,9 @@ export function VersionList({ details }: { details: CaseDetails }) {
             <span className="font-medium">v{v.versionNo}</span> · {reason[v.reason]} by {v.createdBy.name}
             <span className="block text-xs text-muted-foreground">{formatDateTime(v.createdAt)}</span>
           </span>
-          <a
-            href={`/reports/${details.c.id}/pdf?version=${v.versionNo}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[13px] text-primary underline-offset-2 hover:underline"
-          >
+          <FileLink path={files.casePdf(details.c.id, v.versionNo)} className="text-[13px]">
             <FileText className="size-3.5" aria-hidden /> PDF
-          </a>
+          </FileLink>
         </li>
       ))}
     </ul>
@@ -189,14 +186,9 @@ export function DocumentList({ details }: { details: CaseDetails }) {
     <ul className="space-y-2 text-sm">
       {details.documents.map((doc) => (
         <li key={doc.id}>
-          <a
-            href={`/api/cases/${details.c.id}/documents/${doc.id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium text-primary underline-offset-2 hover:underline"
-          >
+          <FileLink path={files.document(details.c.id, doc.id)} className="font-medium">
             <FileText className="size-3.5" aria-hidden /> {doc.originalName}
-          </a>
+          </FileLink>
           <span className="block text-xs text-muted-foreground">
             Uploaded by {doc.uploadedBy.name} · {formatDateTime(doc.createdAt)}
             {doc.runs[0]

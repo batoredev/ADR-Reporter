@@ -1,9 +1,7 @@
 import "server-only";
-import { cache } from "react";
-import { redirect } from "next/navigation";
 import type { AccessSubject } from "@/lib/domain/access";
 import { db } from "@/server/db";
-import { readSessionUserId } from "./session";
+import { sessionUserId } from "./session";
 
 export interface CurrentUser extends AccessSubject {
   id: string;
@@ -15,9 +13,10 @@ export interface CurrentUser extends AccessSubject {
   department: string | null;
 }
 
-/** The signed-in user for this request, or null. Deduplicated within one render. */
-export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
-  const userId = await readSessionUserId();
+/** The signed-in user for a session token, or null if the token is unknown, expired or the account inactive. */
+export async function userForToken(token: string | null): Promise<CurrentUser | null> {
+  if (!token) return null;
+  const userId = await sessionUserId(token);
   if (!userId) return null;
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -46,17 +45,4 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     institutionName: user.institution.name,
     department: user.institution.department,
   };
-});
-
-export async function requireUser(): Promise<CurrentUser> {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-  return user;
-}
-
-/** Requires a signed-in user who passes `check`; otherwise shows the access-denied page. */
-export async function requireAccess(check: (user: CurrentUser) => boolean): Promise<CurrentUser> {
-  const user = await requireUser();
-  if (!check(user)) redirect("/access-denied");
-  return user;
 }

@@ -1,33 +1,26 @@
 import "server-only";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createPrismaClient, type Db } from "./db-client";
-import { onCloudflare } from "./runtime";
 
-// Node.js: one client, reused across requests (and across hot reloads in development).
+// One client per process (Node.js) or per Edge Function instance (Deno). On
+// Supabase, SUPABASE_DB_URL is provided to Edge Functions automatically.
 const globalForDb = globalThis as unknown as { adrDb?: Db };
 
-// Cloudflare Workers forbid sharing a connection between requests, so each
-// request gets its own client, and each connection is used once. With a
-// Hyperdrive binding, connections go through Cloudflare's pool.
-const perRequest = new WeakMap<object, Db>();
-
-function currentClient(): Db {
-  if (!onCloudflare()) return (globalForDb.adrDb ??= createPrismaClient());
-  const { env, ctx } = getCloudflareContext();
-  let client = perRequest.get(ctx);
-  if (!client) {
-    const hyperdrive = (env as { HYPERDRIVE?: { connectionString: string } }).HYPERDRIVE;
-    client = createPrismaClient(hyperdrive?.connectionString ?? process.env.DATABASE_URL, { maxUses: 1 });
-    perRequest.set(ctx, client);
+function client(): Db {
+  if (!globalForDb.adrDb) {
+    const max = Number(process.env.DB_POOL_MAX);
+    globalForDb.adrDb = createPrismaClient(
+      process.env.DATABASE_URL || process.env.SUPABASE_DB_URL,
+      Number.isFinite(max) && max > 0 ? { max } : {},
+    );
   }
-  return client;
+  return globalForDb.adrDb;
 }
 
-/** The database client for the current request. */
+/** The shared database client, created on first use. */
 export const db: Db = new Proxy({} as Db, {
   get(_target, property) {
-    const client = currentClient();
-    const value = Reflect.get(client, property, client);
-    return typeof value === "function" ? value.bind(client) : value;
+    const instance = client();
+    const value = Reflect.get(instance, property, instance);
+    return typeof value === "function" ? value.bind(instance) : value;
   },
 });

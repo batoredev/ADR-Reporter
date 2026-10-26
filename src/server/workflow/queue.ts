@@ -2,21 +2,12 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import type { CaseStatus } from "@/generated/prisma/enums";
 import { canReview } from "@/lib/domain/access";
+import { QUEUE_FILTERS, type QueueFilter } from "@/lib/domain/filters";
 import type { CurrentUser } from "@/server/auth/current-user";
 import { db } from "@/server/db";
 import { WorkflowError } from "./errors";
 
-export const QUEUE_FILTERS = {
-  pending: "Pending review",
-  unassigned: "Not taken up",
-  mine: "Assigned to me",
-  serious: "Potentially serious",
-  returned: "Returned",
-  approved: "Approved",
-  all: "All",
-} as const;
-
-export type QueueFilter = keyof typeof QUEUE_FILTERS;
+export { QUEUE_FILTERS, type QueueFilter };
 
 const PENDING: CaseStatus[] = ["SUBMITTED", "RESUBMITTED", "UNDER_REVIEW"];
 

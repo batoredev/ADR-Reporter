@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { CaseStatus } from "@/generated/prisma/enums";
 import { canCoordinate, canHandleEscalations, canReport, canReview } from "@/lib/domain/access";
+import { DASHBOARD_SORTS, type DashboardSort } from "@/lib/domain/filters";
 import type { CurrentUser } from "@/server/auth/current-user";
 import { db } from "@/server/db";
 
@@ -17,13 +18,7 @@ export function visibleCasesWhere(user: CurrentUser): Prisma.AdrCaseWhereInput {
   return { institutionId: user.institutionId, ...scope };
 }
 
-export const DASHBOARD_SORTS = {
-  activity: "Most recent activity",
-  submitted: "Newest submission",
-  serious: "Potentially serious first",
-} as const;
-
-export type DashboardSort = keyof typeof DASHBOARD_SORTS;
+export { DASHBOARD_SORTS, type DashboardSort };
 
 export interface DashboardFilters {
   q?: string;

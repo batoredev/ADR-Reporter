@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { CheckCircle2, CircleAlert, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { ActionResult } from "@/server/workflow/errors";
+import type { ActionResult } from "@/lib/action-result";
+import { refreshData } from "@/lib/api/use-api";
 
 export interface ChecklistRow {
   key: string;
@@ -41,7 +41,6 @@ export function Checklist({ rows, editable, action }: ChecklistProps) {
 }
 
 function ChecklistItem({ row, editable, action }: { row: ChecklistRow } & Omit<ChecklistProps, "rows">) {
-  const router = useRouter();
   const [exception, setException] = useState(false);
   const [reason, setReason] = useState(row.exceptionReason ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +55,7 @@ function ChecklistItem({ row, editable, action }: { row: ChecklistRow } & Omit<C
         return;
       }
       setException(false);
-      router.refresh();
+      refreshData();
     });
   }
 

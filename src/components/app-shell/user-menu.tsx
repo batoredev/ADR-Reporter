@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronDown, LogOut, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +12,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { logout } from "@/server/auth/actions";
+import { actions } from "@/lib/api/actions";
+import { clearToken } from "@/lib/api/client";
 
 interface UserMenuProps {
   name: string;
@@ -20,6 +22,12 @@ interface UserMenuProps {
 }
 
 export function UserMenu({ name, email, access }: UserMenuProps) {
+  const router = useRouter();
+  async function signOut() {
+    await actions.logout();
+    clearToken();
+    router.replace("/login");
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -47,14 +55,10 @@ export function UserMenu({ name, email, access }: UserMenuProps) {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <form action={logout}>
-          <DropdownMenuItem asChild>
-            <button type="submit" className="w-full">
-              <LogOut aria-hidden />
-              Sign out
-            </button>
-          </DropdownMenuItem>
-        </form>
+        <DropdownMenuItem onSelect={() => void signOut()}>
+          <LogOut aria-hidden />
+          Sign out
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

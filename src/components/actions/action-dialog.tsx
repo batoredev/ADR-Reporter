@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +11,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import type { ActionResult } from "@/server/workflow/errors";
+import type { ActionResult } from "@/lib/action-result";
+import { refreshData } from "@/lib/api/use-api";
 
 const control =
   "w-full min-w-0 rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -59,7 +59,6 @@ interface ActionDialogProps {
 
 /** A dialog with a few inputs that runs one server action. Refusals stay in the dialog. */
 export function ActionDialog(p: ActionDialogProps) {
-  const router = useRouter();
   const initial = () => Object.fromEntries(p.fields.map((f) => [f.name, f.defaultValue ?? ""]));
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState<Record<string, string>>(initial);
@@ -84,7 +83,7 @@ export function ActionDialog(p: ActionDialogProps) {
         return;
       }
       setOpen(false);
-      router.refresh();
+      refreshData();
     });
   }
 

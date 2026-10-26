@@ -1,12 +1,10 @@
 import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont } from "pdf-lib";
 import fieldMap from "../../../docs/reference/adrrf-v1.4-field-map.json";
 import type { CaseSnapshot } from "@/lib/domain/snapshot";
 import { formatForOfficialForm } from "@/lib/domain/partial-date";
-import { onCloudflare } from "@/server/runtime";
 
 // Fills the official PvPI Suspected ADR Reporting Form v1.4 (ADRRF_2.pdf) using
 // the verified field map. Rules (docs/ARCHITECTURE_PLAN.md, sections 2 and 9):
@@ -40,21 +38,18 @@ const PROTECTED = new Set<string>([
   ...fieldMap.suspectedMedicines.rows.map((r) => r.causalityAssessment),
 ]);
 
-// The blank official form. Workers have no file system, so there the build
-// copies it into the static assets (scripts/build-cloudflare.mjs).
-const TEMPLATE_ASSET = "/forms/pvpi-adrrf-v1.4.pdf";
+// The blank official form. Node.js (tests, local API) reads it from docs/reference;
+// the Edge Function installs a loader that fetches it from the website.
 let template: Uint8Array | null = null;
+let loader = async () => new Uint8Array(await readFile(path.join(process.cwd(), "docs/reference/ADRRF_2.pdf")));
+
+export function setFormTemplateLoader(load: () => Promise<Uint8Array>) {
+  loader = load;
+  template = null;
+}
 
 async function loadTemplate(): Promise<Uint8Array> {
-  if (template) return template;
-  if (onCloudflare()) {
-    const assets = getCloudflareContext().env.ASSETS;
-    const response = await assets?.fetch(new URL(TEMPLATE_ASSET, "https://assets.local"));
-    if (!response?.ok) throw new Error(`The PvPI form template is missing from the static assets (${TEMPLATE_ASSET}).`);
-    template = new Uint8Array(await response.arrayBuffer());
-  } else {
-    template = await readFile(path.join(process.cwd(), "docs/reference/ADRRF_2.pdf"));
-  }
+  template ??= await loader();
   return template;
 }
 

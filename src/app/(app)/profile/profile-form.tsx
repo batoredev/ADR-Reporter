@@ -1,11 +1,16 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState, type FormEvent } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { updateProfileAction, type ProfileState } from "@/app/(app)/reports/actions";
+import { Loaded } from "@/components/data/page-state";
+import { useUser } from "@/components/data/session";
+import { actions } from "@/lib/api/actions";
+import { refreshData, useApi } from "@/lib/api/use-api";
+import { describeAccess } from "@/lib/domain/access";
+import type { ProfileView as Profile } from "@/server/api/views";
 
 interface ProfileValues {
   name: string;
@@ -16,10 +21,59 @@ interface ProfileValues {
   phone: string;
 }
 
-export function ProfileForm({ initial }: { initial: ProfileValues }) {
-  const [state, action, pending] = useActionState<ProfileState, FormData>(updateProfileAction, {});
+export function ProfileView() {
+  const user = useUser();
+  const state = useApi<Profile>("/profile");
   return (
-    <form action={action} className="space-y-4 rounded-lg border bg-card p-5">
+    <Loaded state={state}>
+      {(profile) => (
+        <div className="mx-auto max-w-2xl space-y-5">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
+            <p className="text-muted-foreground">
+              {describeAccess(user)}
+              {profile.designation ? ` · ${profile.designation}` : ""}
+            </p>
+          </div>
+          <ProfileForm
+            initial={{
+              name: profile.name,
+              email: profile.email,
+              occupation: profile.occupation ?? "",
+              address: profile.address ?? "",
+              pin: profile.pin ?? "",
+              phone: profile.phone ?? "",
+            }}
+          />
+        </div>
+      )}
+    </Loaded>
+  );
+}
+
+function ProfileForm({ initial }: { initial: ProfileValues }) {
+  const [state, setState] = useState<{ error?: string; saved?: boolean }>({});
+  const [pending, setPending] = useState(false);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const field = (k: string) => String(form.get(k) ?? "");
+    setPending(true);
+    const result = await actions.updateProfile({
+      name: field("name"),
+      occupation: field("occupation"),
+      address: field("address"),
+      pin: field("pin"),
+      phone: field("phone"),
+    });
+    setPending(false);
+    setState(result.ok ? { saved: true } : { error: result.error });
+    if (result.ok) refreshData();
+  }
+
+  return (
+    <form onSubmit={(e) => void save(e)} className="space-y-4 rounded-lg border bg-card p-5">
       <p className="text-[13px] text-muted-foreground">
         These details fill section D (item 16) of the PvPI form. They are copied into a report when you submit it, so
         later changes do not alter reports already submitted.

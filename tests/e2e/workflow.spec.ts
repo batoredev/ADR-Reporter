@@ -1,5 +1,9 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
+// The API the test site talks to (see playwright.config.ts).
+const API_URL = "http://localhost:8100/api";
+const caseIdFrom = (page: Page) => new URL(page.url()).searchParams.get("id") ?? "";
+
 // The whole institutional workflow in one browser session per person, on a new
 // fictional report (the AI provider is the saved test fixture, see playwright.config.ts).
 
@@ -39,8 +43,8 @@ test("a report goes from AI-assisted entry through review, approval and external
   await test.step("the reporter fills the form, with medicines read from a prescription", async () => {
     await reporter.goto("/reports/new");
     await reporter.getByRole("button", { name: "Start a structured report" }).click();
-    await reporter.waitForURL(/\/reports\/[^/]+\/edit$/);
-    caseId = reporter.url().split("/").at(-2)!;
+    await reporter.waitForURL(/\/reports\/edit\?id=/);
+    caseId = caseIdFrom(reporter);
     await reporter.getByLabel("1. Patient initials").fill("E.T.");
     await reporter.getByLabel("2. Age at onset").fill("52");
     await reporter.getByLabel("Reaction term(s)").fill("Maculopapular rash");
@@ -64,10 +68,10 @@ test("a report goes from AI-assisted entry through review, approval and external
     await expect(reporter.getByText(/Saved at|All changes saved/)).toBeVisible({ timeout: 10_000 });
 
     await reporter.getByRole("button", { name: "Review and submit" }).click();
-    await reporter.waitForURL("**/submit");
+    await reporter.waitForURL(/\/reports\/submit\?id=/);
     await reporter.getByRole("checkbox", { name: /I confirm this report/ }).check();
     await reporter.getByRole("button", { name: "Submit for institutional review" }).click();
-    await reporter.waitForURL(/\?submitted=1$/);
+    await reporter.waitForURL(/submitted=1$/);
     caseNumber = (await reporter.getByRole("heading", { level: 1 }).innerText()).trim();
     expect(caseNumber).toMatch(/^ADR-\d{3,}$/);
   });
@@ -77,7 +81,7 @@ test("a report goes from AI-assisted entry through review, approval and external
   await test.step("a reviewer takes the case up, raises an issue and returns it", async () => {
     await reviewer.goto("/review");
     await reviewer.getByRole("row").filter({ hasText: caseNumber }).getByRole("button", { name: "Take up" }).click();
-    await reviewer.waitForURL(`**/review/${caseId}`);
+    await reviewer.waitForURL(`**/review/case?id=${caseId}`);
     // Values read from the prescription show their source.
     await expect(reviewer.getByText(/From fictional-prescription-clean\.png/).first()).toBeVisible();
 
@@ -99,21 +103,21 @@ test("a report goes from AI-assisted entry through review, approval and external
   });
 
   await test.step("the reporter corrects the report and resubmits it", async () => {
-    await reporter.goto(`/reports/${caseId}/edit`);
+    await reporter.goto(`/reports/edit?id=${caseId}`);
     await expect(reporter.getByText("Please add the batch number from the strip.").first()).toBeVisible();
     await reporter.locator('input[name="suspectedMedicines.0.batchLot"]').fill("AMX2610B");
     await expect(reporter.getByText(/Saved at/)).toBeVisible({ timeout: 10_000 });
-    await reporter.goto(`/reports/${caseId}/submit`);
+    await reporter.goto(`/reports/submit?id=${caseId}`);
     await reporter.getByLabel(/Note to the reviewer/).fill("Batch number added from the strip.");
     await reporter.getByRole("checkbox", { name: /I confirm this report/ }).check();
     await reporter.getByRole("button", { name: "Resubmit for review" }).click();
-    await reporter.waitForURL(/\?submitted=2$/);
+    await reporter.waitForURL(/submitted=2$/);
   });
 
   await test.step("the same reviewer resumes, closes the issue and approves", async () => {
     await reviewer.goto("/review?filter=mine");
     await reviewer.getByRole("row").filter({ hasText: caseNumber }).getByRole("button", { name: "Resume" }).click();
-    await reviewer.waitForURL(`**/review/${caseId}`);
+    await reviewer.waitForURL(`**/review/case?id=${caseId}`);
     await expect(reviewer.locator('[data-path$=".batchLot"]').getByText("Changed in this version")).toBeVisible();
 
     await reviewer.getByRole("button", { name: "Close issue" }).click();
@@ -126,7 +130,11 @@ test("a report goes from AI-assisted entry through review, approval and external
     await reviewer.getByRole("button", { name: "Approve" }).click();
     await expect(reviewer.getByText(/Institutionally approved as v3/)).toBeVisible({ timeout: 30_000 });
 
-    const pdf = await reviewer.request.get(`/reports/${caseId}/pdf?version=3`);
+    // Files need the session token, which the site keeps in localStorage.
+    const token = await reviewer.evaluate(() => localStorage.getItem("adr_session"));
+    const pdf = await reviewer.request.get(`${API_URL}/cases/${caseId}/pdf?version=3`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     expect(pdf.status()).toBe(200);
     expect(pdf.headers()["content-type"]).toBe("application/pdf");
     expect((await pdf.body()).subarray(0, 4).toString()).toBe("%PDF");
@@ -166,8 +174,8 @@ test("a potentially serious draft reaches the urgent contacts before any review"
   const physician = await signIn(browser, baseURL!, "Demo Resident Physician");
   await physician.goto("/reports/new");
   await physician.getByRole("button", { name: "Start a structured report" }).click();
-  await physician.waitForURL(/\/reports\/[^/]+\/edit$/);
-  const caseId = physician.url().split("/").at(-2)!;
+  await physician.waitForURL(/\/reports\/edit\?id=/);
+  const caseId = caseIdFrom(physician);
   await physician.getByLabel("1. Patient initials").fill("K.P.");
   await physician.getByLabel("Reaction term(s)").fill("Suspected anaphylaxis");
   await physician.getByRole("checkbox", { name: /Hospitalisation/ }).check();
@@ -181,7 +189,7 @@ test("a potentially serious draft reaches the urgent contacts before any review"
 
   const contact = await signIn(browser, baseURL!, "Demo Chief Pharmacist");
   await contact.goto("/escalations");
-  const card = contact.locator("article").filter({ has: contact.locator(`a[href="/reports/${caseId}"]`) });
+  const card = contact.locator("article").filter({ has: contact.locator(`a[href="/reports/view?id=${caseId}"]`) });
   await expect(card).toContainText("Collapsed after the IV dose");
   await expect(card).toContainText("Draft");
   await card.getByRole("button", { name: "Acknowledge" }).click();

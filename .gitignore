@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+# Public settings only (the API address); never put passwords in these.
+!.env.production
+!.env.development
 
 # vercel
 .vercel
@@ -52,8 +55,6 @@ next-env.d.ts
 /playwright-report/
 /playwright/.cache/
 
-# Cloudflare build output
-/.open-next/
-/.wrangler/
+
+# Copied from docs/reference at build (npm run build)
 /public/forms/
-.dev.vars*

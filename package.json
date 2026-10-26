@@ -5,7 +5,6 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "format": "prettier --write .",
@@ -21,9 +20,10 @@
     "db:reset": "prisma migrate reset --force && prisma db seed",
     "test:db:init": "node scripts/with-test-db.mjs npm run db:init",
     "format:check": "prettier --check .",
-    "cf:build": "node scripts/build-cloudflare.mjs",
-    "cf:preview": "node scripts/build-cloudflare.mjs && wrangler dev",
-    "cf:deploy": "node scripts/build-cloudflare.mjs && opennextjs-cloudflare deploy"
+    "dev:api": "tsx watch src/server/api/node-server.ts",
+    "build:api": "node scripts/build-api.mjs",
+    "preview": "node scripts/serve-static.mjs out 3000",
+    "prebuild": "node -e \"require('fs').mkdirSync('public/forms',{recursive:true});require('fs').copyFileSync('docs/reference/ADRRF_2.pdf','public/forms/pvpi-adrrf-v1.4.pdf')\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.1.0",
@@ -48,7 +48,6 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.20.13",
     "@playwright/test": "1.56.1",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^22.20.5",
@@ -63,7 +62,6 @@
     "tailwindcss": "^4",
     "tsx": "4.23.15",
     "typescript": "^5",
-    "vitest": "5.0.5",
-    "wrangler": "^4.152.0"
+    "vitest": "5.0.5"
   }
 }

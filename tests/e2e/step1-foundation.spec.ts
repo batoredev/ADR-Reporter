@@ -55,7 +55,7 @@ test("every demo account can sign in and sees navigation for its role", async ({
   }
 });
 
-test("pages are protected on the server, not only hidden from the menu", async ({ page }) => {
+test("pages a role may not use lead to the access-denied page, not only hidden from the menu", async ({ page }) => {
   await signInAs(page, "Demo Clinical Pharmacist");
   for (const path of ["/review", "/escalations", "/submissions"]) {
     await page.goto(path);

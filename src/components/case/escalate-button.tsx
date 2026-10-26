@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Siren } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,10 +12,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { escalateAction } from "@/app/(app)/reports/actions";
+import { actions } from "@/lib/api/actions";
+import { refreshData } from "@/lib/api/use-api";
 
 export function EscalateButton({ caseId }: { caseId: string }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,14 +24,14 @@ export function EscalateButton({ caseId }: { caseId: string }) {
   async function submit() {
     setPending(true);
     setError(null);
-    const result = await escalateAction(caseId, note);
+    const result = await actions.escalate(caseId, note);
     setPending(false);
     if (!result.ok) {
       setError(result.error);
       return;
     }
     setOpen(false);
-    router.refresh();
+    refreshData();
   }
 
   return (

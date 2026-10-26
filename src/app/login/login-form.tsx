@@ -1,45 +1,67 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { login, type LoginState } from "./actions";
+import { actions } from "@/lib/api/actions";
+import { getToken, setToken } from "@/lib/api/client";
+import { useApi } from "@/lib/api/use-api";
+import type { DemoAccountsView } from "@/server/api/views";
 
-export interface DemoAccountOption {
-  email: string;
-  name: string;
-  summary: string;
-}
+type DemoAccountOption = DemoAccountsView["accounts"][number];
 
-interface LoginFormProps {
-  demoAccounts: DemoAccountOption[];
-  demoPassword: string | null;
-}
-
-export function LoginForm({ demoAccounts, demoPassword }: LoginFormProps) {
-  const [state, formAction, pending] = useActionState<LoginState, FormData>(login, {});
-  const formRef = useRef<HTMLFormElement>(null);
-  const [email, setEmail] = useState(state.email ?? "");
+export function LoginForm() {
+  const router = useRouter();
+  const demo = useApi<DemoAccountsView>("/auth/demo");
+  const demoAccounts = demo.data?.accounts ?? [];
+  const demoPassword = demo.data?.demoPassword ?? null;
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-  // Demo shortcut: fills the real form and submits it, so it uses the normal sign-in path.
+  // Already signed in: go straight to the dashboard.
+  useEffect(() => {
+    if (getToken()) router.replace("/dashboard");
+  }, [router]);
+
+  async function signIn(signInEmail: string, signInPassword: string) {
+    setPending(true);
+    setError(null);
+    const result = await actions.login(signInEmail, signInPassword);
+    if (!result.ok) {
+      setError(result.error);
+      setPending(false);
+      return;
+    }
+    setToken(result.data.token);
+    router.replace("/dashboard");
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void signIn(email, password);
+  }
+
+  // Demo shortcut: fills the form and signs in through the normal sign-in path.
   function signInAs(account: DemoAccountOption) {
     if (!demoPassword) return;
     setEmail(account.email);
     setPassword(demoPassword);
-    queueMicrotask(() => formRef.current?.requestSubmit());
+    void signIn(account.email, demoPassword);
   }
 
   return (
     <div className="space-y-8">
-      <form ref={formRef} action={formAction} className="space-y-4" noValidate>
-        {state.error ? (
+      <form onSubmit={submit} className="space-y-4" noValidate>
+        {error ? (
           <Alert variant="destructive" role="alert">
             <AlertCircle aria-hidden />
-            <AlertDescription>{state.error}</AlertDescription>
+            <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
         <div className="space-y-1.5">
