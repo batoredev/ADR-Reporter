@@ -74,7 +74,8 @@ password.
 npm install                 # installs packages and generates the database client
 cp .env.example .env        # on Windows: copy .env.example .env
 npm run db:init             # creates the tables and loads the fictional demo data
-npm run dev                 # starts the app
+npm run dev:api             # terminal 1: the API on http://localhost:8000/api
+npm run dev                 # terminal 2: the website
 ```
 
 Open <http://localhost:3000>.
@@ -137,7 +138,8 @@ The login page lists every demo account. Select one to sign in. All accounts use
 npm run test:db:init        # once: prepares the separate test database (never touches your data)
 npm test                    # unit and database tests (each run adds a few fictional cases to the test database)
 npx playwright install chromium   # once: downloads the test browser
-npm run test:e2e            # browser tests (starts its own server on port 3100, with AI_PROVIDER=fixture)
+npm run test:e2e            # browser tests: builds the static site and starts the API (AI_PROVIDER=fixture)
+DENO_BIN=$(which deno) npm run test:e2e   # the same, with the API as the Edge Function bundle under Deno
 ```
 
 Other checks: `npm run lint`, `npm run typecheck`, `npm run format:check`, `npm run build`.
@@ -151,112 +153,77 @@ npm run db:reset
 > ⚠️ This **permanently deletes everything** in the database named in `DATABASE_URL`, then reloads the fictional demo
 > data. Use it only on your local development database.
 
-## Deploy to Cloudflare
+## Deploy: Supabase + Cloudflare Pages
 
-The app runs on **Cloudflare Workers** through the OpenNext adapter. **Cloudflare Pages cannot run it.** Pages hosts
-static files, and this app needs a server for sign-in, the database and PDF generation. A Pages project connected to
-this repository only publishes the repository's files (the README, `package.json`, …), so delete it or disconnect it
-under **Workers & Pages → (the Pages project) → Settings**.
+How the deployed app is put together:
 
-### What you need
+- **Website:** static files on **Cloudflare Pages**. The free plan is enough. Every page loads its data from the API.
+- **API:** one **Supabase Edge Function** named `api` (`supabase/functions/api/index.ts`). It holds all the server logic:
+  sign-in, reports, review, escalation, submissions, PDFs and AI extraction.
+- **Database:** Supabase PostgreSQL. The tables and demo data come from `supabase/migrations/`.
 
-- **The Cloudflare Workers Paid plan** (USD 5 a month). The Free plan allows 10 ms of CPU time per request. Checking a
-  password takes about 75 ms and generating a PDF takes longer, so sign-in and approval would fail on the Free plan.
-- **A PostgreSQL database reachable from the internet.** Cloudflare does not host PostgreSQL. Any provider works, for
-  example [Supabase](https://supabase.com) or [Neon](https://neon.tech) (both have free tiers). Copy its connection
-  string, with `?sslmode=require` at the end.
+No passwords or keys go into GitHub. The Edge Function gets its database connection from Supabase automatically. The
+only setting in the repository is the public API address in `.env.production`.
 
-**With Supabase:** open your project, select **Connect**, and copy the **Session pooler** connection string (port 5432).
-Replace `[YOUR-PASSWORD]` with your database password and add `?sslmode=require`. Use this string in step 1 and for
-Hyperdrive below. The "Direct connection" string needs IPv6, which many networks lack, so use the pooler one.
+### 1. Supabase
 
-### 1. Create the tables and demo data in the hosted database
+1. **Database:** run the six SQL files in `supabase/migrations/` in the SQL Editor, in order (see
+   [`supabase/README.md`](supabase/README.md)).
+2. **Edge Function:** go to **Edge Functions → Deploy a new function → Via Editor**. Name it `api`, replace the
+   editor's code with the whole of `supabase/functions/api/index.ts`, and deploy.
+3. **Turn off JWT verification** for `api`, in the function's settings. The app signs users in with its own tokens.
+4. **Optional:** add secrets under **Edge Functions → Secrets**:
+   - `AI_PROVIDER` = `anthropic` and `AI_API_KEY`, for real AI extraction;
+   - `DEMO_MODE` = `false`, to hide the demo accounts;
+   - `FORM_TEMPLATE_URL`, if the website is not at `https://adr-reporter.pages.dev`.
 
-**On the Supabase website (no computer needed):** follow [`supabase/README.md`](supabase/README.md). You paste six SQL
-files into Supabase's SQL Editor, in order.
+Check it: `https://<project>.supabase.co/functions/v1/api/health` should show `{"ok":true}`.
 
-**Or from this folder on your computer,** for any PostgreSQL provider (macOS/Linux shown; on Windows set the variable with `set DATABASE_URL=...` first):
+### 2. Cloudflare Pages
 
-```bash
-DATABASE_URL="postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require" npm run db:init
-```
+Connect the repository and use these build settings:
 
-### 2. Deploy
+| Setting                | Value                 |
+| ---------------------- | --------------------- |
+| Framework preset       | None                  |
+| Build command          | `npm run build`       |
+| Build output directory | `out`                 |
+| Production branch      | the branch to publish |
 
-**Option A: automatic deploys from GitHub (Workers Builds).** In the Cloudflare dashboard open **Workers & Pages →
-Create → Import a repository** and choose this repository. Then set:
+The API address comes from `.env.production`. If your Supabase project is different, change
+`NEXT_PUBLIC_API_URL` there.
 
-| Setting        | Value                                                  |
-| -------------- | ------------------------------------------------------ |
-| Project name   | `adr-reporter` (must match `name` in `wrangler.jsonc`) |
-| Build command  | `npm run cf:build`                                     |
-| Deploy command | `npx opennextjs-cloudflare deploy`                     |
+### When the server code changes
 
-After the project is created, open **Settings → Variables and Secrets** and add a **secret** named `DATABASE_URL` with
-the connection string. Then retry the deployment. Every push to the production branch deploys again.
-
-**Option B: deploy from your computer.**
-
-```bash
-npx wrangler login                    # once
-npx wrangler secret put DATABASE_URL  # paste the connection string
-npm run cf:deploy
-```
-
-The app is then live at `https://adr-reporter.<your-subdomain>.workers.dev`.
-
-### Settings on Cloudflare
-
-Plain settings are in `wrangler.jsonc` under `vars` (`DEMO_MODE`, `SESSION_TTL_HOURS`, `AI_PROVIDER`, `AI_MODEL`).
-To turn on AI extraction, set `AI_PROVIDER` to `anthropic` and add a secret `AI_API_KEY`.
-
-For faster database access, put [Hyperdrive](https://developers.cloudflare.com/hyperdrive/) (Cloudflare's connection
-pooler, included in every plan) in front of the database. This is the recommended setup with Supabase. Either run
-`npx wrangler hyperdrive create adr-reporter --connection-string="<connection string>"`, or create one in the
-dashboard under **Workers & Pages → Hyperdrive**. Then uncomment the `hyperdrive` block in `wrangler.jsonc`, put in
-the id it shows, and push. The app then uses Hyperdrive instead of the `DATABASE_URL` secret. (For `npm run cf:preview`
-with Hyperdrive enabled, also set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` to your local database
-URL.)
-
-### Try the Cloudflare build locally
-
-```bash
-cp .env.example .dev.vars   # then keep only DATABASE_URL and any AI_* lines
-npm run cf:preview          # builds, then serves it on http://localhost:8787 in Cloudflare's runtime
-```
-
-### How the Cloudflare build differs
-
-- `npm run cf:build` (`scripts/build-cloudflare.mjs`) generates the Prisma client for Cloudflare's runtime, which loads
-  its query engine as a WebAssembly module. Afterwards it restores the normal client for local development.
-- Uploaded documents and approved PDFs are stored in the database (the `StoredFile` table), because Workers have no
-  disk. Local development stores them the same way.
-- On Workers, each request gets its own database connection; connections are never shared between requests.
+`supabase/functions/api/index.ts` is generated: run `npm run build:api` after changing anything in `src/server`, then
+redeploy the function. With the Supabase CLI: `npx supabase functions deploy api --project-ref <project ref>`.
 
 ## Project layout
 
 ```
 docs/                 plan, official PvPI form, verified field map
 prisma/               database schema, migrations, fictional seed data
-supabase/             the same database as SQL files for Supabase's SQL Editor (see supabase/README.md)
 samples/              fictional prescriptions for the AI demo
-src/app/              pages and server actions (reports, review, escalations, submissions, …)
+src/app/              pages (static; each loads its data from the API)
 src/components/       interface components (shadcn/ui based)
 src/lib/domain/       shared rules: form, dates, completeness, seriousness, access, labels
+src/server/api/       the API: routes, sign-in tokens, files (runs as the Supabase Edge Function)
 src/server/workflow/  case lifecycle: drafts, review, escalation, submissions, extraction
 src/server/pdf/       fills the official PvPI form
 src/server/ai/        AI providers (anthropic, fixture)
 src/server/           database, sessions, audit log, file storage (in the database)
-scripts/              test-database helper, Cloudflare build
-wrangler.jsonc        Cloudflare Workers configuration
+scripts/              API bundle build, static preview server, test-database helper
+supabase/             SQL migrations and the generated Edge Function (supabase/README.md)
 tests/                unit, integration (database) and browser tests
 ```
 
 ## Security notes for this prototype
 
-- **Passwords and sessions:** passwords are stored as bcrypt hashes. Sessions are random tokens; only their hash is
-  stored in the database. Cookies are httpOnly.
-- **Access checks:** every page and every server action checks the signed-in user, their role and the case state on
+- **Passwords and sessions:** passwords are stored as bcrypt hashes. A session is a random token; only its hash is
+  stored in the database. Because the website and the API are on different domains, the browser keeps the token in
+  localStorage and sends it with each request, rather than in an httpOnly cookie. Any script running on the site could
+  read it, so the site loads no third-party scripts.
+- **Access checks:** every API request checks the signed-in user, their role and the case state on
   the server. Two people editing the same draft cannot overwrite each other.
 - **Uploads:** files up to 10 MB. The type is checked from the file contents (PNG, JPEG or PDF only). Files are
   stored in the database, never in a public folder, and served only to people who may view the case. Stored files

@@ -6,6 +6,7 @@ and the fictional demo data. You can do everything on the Supabase website; noth
 ```
 supabase/
   config.toml                         Supabase CLI project settings (only used with the CLI)
+  functions/api/index.ts              the app's server as one Edge Function (generated)
   migrations/
     001_schema.sql                    tables, enums, indexes, append-only audit log, frozen versions
     002_list_defaults_and_pdf.sql     empty-list defaults, declaration time, stored PDF references
@@ -31,9 +32,9 @@ supabase/
 3. **Check:** in **Table Editor** you should see tables such as `AdrCase`, `User` and `CaseVersion`, with 9 rows in
    `User` and 8 in `AdrCase`. Supabase may point out that the tables have Row Level Security on but no policies; that
    is intended (see below).
-4. **Copy the connection string for Cloudflare:** select **Connect**, choose **Session pooler** (port 5432), copy the
-   URI, replace `[YOUR-PASSWORD]` with your password, and add `?sslmode=require` at the end. Paste it into a
-   Cloudflare **Hyperdrive** configuration (Cloudflare → Storage & Databases → Hyperdrive), never into code or chat.
+4. **Connection string (optional):** select **Connect**, choose **Session pooler** (port 5432), copy the
+   URI, replace `[YOUR-PASSWORD]` with your password, and add `?sslmode=require` at the end. You only need it to
+   connect from your own computer; the Edge Function connects by itself.
 
 Running `006_demo_data.sql` a second time does nothing: it stops with "Demo data is already loaded".
 
@@ -43,16 +44,18 @@ All demo accounts use the password `AdrDemo#2026`, for example `pharmacist@demo.
 (reviewer, queue lead, urgent contact) and `amc.coordinator@demo.test` (coordinator). The full list is in the main
 README. Everything in the demo data is fictional.
 
-## Why there are no Edge Functions
+## The Edge Function `api`
 
-Edge Functions are for apps without a server of their own: a static website calls them to send emails, save forms or
-receive webhooks. ADR Reporter has its own server, the Cloudflare Worker, which does all of that work (sign-in,
-reports, review, PDFs, AI extraction). Supabase is used only as the PostgreSQL database.
+`functions/api/index.ts` is the whole server of the app: sign-in, reports, review, escalation, submissions, PDFs and
+AI extraction. It is one generated file (`npm run build:api` builds it from `src/server`). Deploy it in the dashboard
+under **Edge Functions → Deploy a new function → Via Editor**: name it `api`, paste the file, deploy, then **turn off
+JWT verification** for it, because the app signs users in with its own tokens. It connects to this project's database
+automatically (`SUPABASE_DB_URL`), so it needs no database secret.
 
 ## Why the Data API is closed
 
 Supabase automatically publishes every table in the `public` schema through a REST/GraphQL API that anyone with the
-project's public anon key can call. This app never uses that API; the Worker connects to PostgreSQL directly as the
+project's public anon key can call. This app never uses that API; its Edge Function connects to PostgreSQL directly as the
 database owner. `005_lock_down_data_api.sql` therefore removes all access for the API roles (`anon`, `authenticated`)
 and turns on Row Level Security with no policies, which denies them everything. The app, as table owner, is not
 affected. You can also switch the Data API off entirely in the project's settings.

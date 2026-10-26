@@ -18,6 +18,8 @@ const apiEnv = {
   // The saved test fixture stands in for the AI provider, so tests need no API key or network.
   AI_PROVIDER: "fixture",
   DEMO_MODE: "true",
+  // The Edge Function fetches the blank PvPI form from the website.
+  FORM_TEMPLATE_URL: `http://localhost:${SITE_PORT}/forms/pvpi-adrrf-v1.4.pdf`,
 };
 const deno = process.env.DENO_BIN;
 
@@ -37,7 +39,7 @@ export default defineConfig({
   webServer: [
     {
       command: deno
-        ? `node scripts/build-api.mjs && cd supabase/functions/api && "${deno}" run -A --config deno.json index.ts`
+        ? `node scripts/build-api.mjs && "${deno}" run -A supabase/functions/api/index.ts`
         : "npx tsx src/server/api/node-server.ts",
       url: `${API_URL}/health`,
       reuseExistingServer: false,
@@ -45,7 +47,7 @@ export default defineConfig({
       env: apiEnv,
     },
     {
-      command: `npx next build && node scripts/serve-static.mjs out ${SITE_PORT}`,
+      command: `npm run build && node scripts/serve-static.mjs out ${SITE_PORT}`,
       url: `http://localhost:${SITE_PORT}/login`,
       reuseExistingServer: false,
       timeout: 300_000,
