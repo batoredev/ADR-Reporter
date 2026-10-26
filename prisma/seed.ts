@@ -35,7 +35,7 @@ type Users = Record<
 
 async function main() {
   if ((await prisma.institution.count()) > 0) {
-    console.log("Database already contains data; seed skipped. Run `npm run db:setup` to reset and re-seed.");
+    console.log("Database already contains data; seed skipped. Run `npm run db:reset` to reset and re-seed.");
     return;
   }
 
