@@ -205,7 +205,9 @@ Connect the repository and use these build settings:
 | Production branch      | the branch to publish |
 
 The API address comes from `.env.production`. If your Supabase project is different, change
-`NEXT_PUBLIC_API_URL` there.
+`NEXT_PUBLIC_API_URL` there, and set `NEXT_PUBLIC_API_REGION` to the project's database region (shown under Project
+Settings, e.g. `ap-south-1`). Supabase otherwise runs the function near each visitor, and a visitor far from the
+database waits for every query to cross that distance (measured: about 5.5 s for the dashboard instead of 2 s).
 
 ### When the server code changes
 

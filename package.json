@@ -20,7 +20,7 @@
     "db:reset": "prisma migrate reset --force && prisma db seed",
     "test:db:init": "node scripts/with-test-db.mjs npm run db:init",
     "format:check": "prettier --check .",
-    "dev:api": "tsx watch src/server/api/node-server.ts",
+    "dev:api": "tsx watch --conditions=react-server src/server/api/node-server.ts",
     "build:api": "node scripts/build-api.mjs",
     "preview": "node scripts/serve-static.mjs out 3000",
     "prebuild": "node -e \"require('fs').mkdirSync('public/forms',{recursive:true});require('fs').copyFileSync('docs/reference/ADRRF_2.pdf','public/forms/pvpi-adrrf-v1.4.pdf')\""

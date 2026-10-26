@@ -40,7 +40,7 @@ export default defineConfig({
     {
       command: deno
         ? `node scripts/build-api.mjs && "${deno}" run -A supabase/functions/api/index.ts`
-        : "npx tsx src/server/api/node-server.ts",
+        : "npx tsx --conditions=react-server src/server/api/node-server.ts",
       url: `${API_URL}/health`,
       reuseExistingServer: false,
       timeout: 180_000,

@@ -4,6 +4,17 @@ import { decodeJson } from "@/lib/json";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api").replace(/\/+$/, "");
 
+// Supabase runs an Edge Function in the region nearest the visitor. The API
+// queries the database several times per page, so it is kept next to the
+// database instead (the database's region, e.g. ap-south-1).
+const API_REGION = process.env.NEXT_PUBLIC_API_REGION;
+
+function apiUrl(path: string): string {
+  const url = `${API_URL}${path}`;
+  if (!API_REGION) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}forceFunctionRegion=${encodeURIComponent(API_REGION)}`;
+}
+
 const TOKEN_KEY = "adr_session";
 
 export function getToken(): string | null {
@@ -47,7 +58,7 @@ async function request(path: string, init: RequestInit): Promise<Response> {
   if (token) headers.set("Authorization", `Bearer ${token}`);
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, { ...init, headers });
+    response = await fetch(apiUrl(path), { ...init, headers });
   } catch {
     throw new ApiError("The server could not be reached. Check your connection and try again.", 0);
   }
