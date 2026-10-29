@@ -19,6 +19,7 @@ import {
   type InvestigationField,
   type SingleField,
 } from "@/lib/domain/extraction";
+import { patientInitialsMatch, qualityKey, reviewExtraction } from "@/lib/domain/extraction-quality";
 import { isValidPartialDate } from "@/lib/domain/partial-date";
 import { AiError, AiUnavailableError, generateWithFallback, type AiAttempt } from "@/server/ai/provider";
 import type { DocumentMimeType } from "@/server/ai/types";
@@ -26,7 +27,7 @@ import { writeAudit } from "@/server/audit";
 import type { CurrentUser } from "@/server/auth/current-user";
 import { db } from "@/server/db";
 import { readStoredFile, saveFile, sniffType } from "@/server/storage";
-import { loadCase } from "./cases";
+import { loadCase, lockCase } from "./cases";
 import { WorkflowError } from "./errors";
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -69,10 +70,14 @@ export interface ProposedValue {
   value: string | null;
   sourceText: string | null;
   uncertain: boolean;
+  approximate: boolean;
+  sourcePage: number | null;
+  warnings: string[];
 }
 
 export interface ExtractionView {
   runId: string;
+  lockVersion: number;
   documentId: string;
   provider: string;
   model: string;
@@ -80,6 +85,10 @@ export interface ExtractionView {
   attempts: AiAttempt[];
   documentType: DocumentType;
   notes: string | null;
+  readability: DocumentExtraction["readability"];
+  patientMatch: "MATCH" | "DIFFERENT" | "UNKNOWN";
+  reportInitials: string | null;
+  documentInitials: string | null;
   /** Case-level values (patient, reaction, history) with what the report holds now. */
   singles: { field: SingleField; proposal: ProposedValue; current: string | null }[];
   investigations: { index: number; fields: Record<InvestigationField, ProposedValue> }[];
@@ -116,6 +125,7 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
   const doc = await db.uploadedDocument.findFirst({ where: { id: documentId, caseId: c.id } });
   if (!doc) throw new WorkflowError("Document not found.", "NOT_FOUND");
 
+  const startedAt = new Date();
   const bytes = await readStoredFile(doc.storageKey);
   let outcome;
   try {
@@ -125,6 +135,13 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
       prompt: "Read this document and extract what it says.",
       document: { bytes: new Uint8Array(bytes), mimeType: doc.mimeType as DocumentMimeType },
       schema: documentExtractionSchema,
+      maxOutputTokens: 16000,
+      validateOutput: (output) => {
+        if (output.readability === "UNREADABLE")
+          throw new AiError(
+            "The document could not be read reliably. Upload a clearer image or PDF, or enter details manually.",
+          );
+      },
     });
   } catch (error) {
     const message =
@@ -138,6 +155,7 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
         provider: last?.provider ?? "none",
         model: last?.model ?? "none",
         status: attempts.length ? "FAILED" : "UNAVAILABLE",
+        startedAt,
         completedAt: new Date(),
         errorMessage: message,
         rawResponse: { attempts } as unknown as Prisma.InputJsonValue,
@@ -154,7 +172,9 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
     throw new WorkflowError(message);
   }
 
-  const output: DocumentExtraction = outcome.output;
+  if (outcome.output.readability === "UNREADABLE")
+    throw new WorkflowError("The document could not be read reliably. Upload a clearer copy.");
+  const { output, issues } = reviewExtraction(outcome.output);
   const run = await db.extractionRun.create({
     data: {
       documentId: doc.id,
@@ -162,8 +182,15 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
       provider: outcome.provider,
       model: outcome.model,
       status: "SUCCEEDED",
+      startedAt,
       completedAt: new Date(),
-      rawResponse: { output, meta: outcome.meta, attempts: outcome.attempts } as unknown as Prisma.InputJsonValue,
+      rawResponse: {
+        output,
+        originalOutput: outcome.output,
+        qualityIssues: issues,
+        meta: outcome.meta,
+        attempts: outcome.attempts,
+      } as unknown as Prisma.InputJsonValue,
     },
   });
 
@@ -206,39 +233,103 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
       });
     }
   });
-  const items = rows.length
-    ? await db.extractedItem.createManyAndReturn({
-        data: rows,
-        select: {
-          id: true,
-          fieldName: true,
-          medicationIndex: true,
-          proposedValue: true,
-          sourceText: true,
-          uncertain: true,
-        },
-      })
-    : [];
+  if (rows.length)
+    await db.extractedItem.createManyAndReturn({
+      data: rows,
+      select: {
+        id: true,
+        fieldName: true,
+        medicationIndex: true,
+        proposedValue: true,
+        sourceText: true,
+        uncertain: true,
+      },
+    });
 
-  const proposal = (i: (typeof items)[number]): ProposedValue => ({
+  const view = await getExtraction(user, caseId, run.id);
+
+  await writeAudit({
+    institutionId: user.institutionId,
+    actorId: user.id,
+    caseId: c.id,
+    action: "EXTRACTION_RUN",
+    details: {
+      runId: run.id,
+      status: "SUCCEEDED",
+      provider: outcome.provider,
+      model: outcome.model,
+      documentType: output.documentType,
+      values: view.singles.length,
+      investigations: output.investigations.length,
+      medications: output.medications.length,
+      attempts: outcome.attempts,
+    },
+  });
+  return view;
+}
+
+/** Resume a persisted extraction with fresh current values; no provider call. */
+export async function getExtraction(user: CurrentUser, caseId: string, runId: string): Promise<ExtractionView> {
+  const { c, access } = await loadCase(user, caseId);
+  if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "FORBIDDEN");
+  const run = await db.extractionRun.findFirst({
+    where: { id: runId, document: { caseId }, status: "SUCCEEDED" },
+    include: { items: true },
+  });
+  if (!run) throw new WorkflowError("This extraction was not found.", "NOT_FOUND");
+  if (run.items.some((i) => i.status !== "PENDING"))
+    throw new WorkflowError("These suggestions were already decided.", "CONFLICT");
+  const raw = run.rawResponse as unknown as { output: DocumentExtraction; attempts?: AiAttempt[] };
+  const parsedOutput = documentExtractionSchema.safeParse(raw.output);
+  if (!parsedOutput.success)
+    throw new WorkflowError("This saved extraction uses an older format. Read the document with AI again.");
+  const { output, issues } = reviewExtraction(parsedOutput.data);
+  const detailsFor = (i: (typeof run.items)[number]) => {
+    if (i.fieldName.startsWith(SINGLE_PREFIX))
+      return singleValue(output, i.fieldName.slice(SINGLE_PREFIX.length) as SingleField);
+    if (i.fieldName.startsWith(INVESTIGATION_PREFIX))
+      return output.investigations[i.medicationIndex]?.[
+        i.fieldName.slice(INVESTIGATION_PREFIX.length) as InvestigationField
+      ];
+    return output.medications[i.medicationIndex]?.[i.fieldName as ExtractedField];
+  };
+  const proposal = (i: (typeof run.items)[number]): ProposedValue => ({
     itemId: i.id,
     value: i.proposedValue,
     sourceText: i.sourceText,
-    uncertain: i.uncertain,
+    uncertain: i.uncertain || Boolean(detailsFor(i)?.uncertain),
+    sourcePage: detailsFor(i)?.sourcePage ?? null,
+    warnings: issues
+      .filter((p) => qualityKey(p.fieldName, p.index) === qualityKey(i.fieldName, i.medicationIndex))
+      .map((p) => p.message),
+    approximate: Boolean(
+      i.fieldName.startsWith(SINGLE_PREFIX)
+        ? singleValue(output, i.fieldName.slice(SINGLE_PREFIX.length) as SingleField)?.approximate
+        : i.fieldName.startsWith(INVESTIGATION_PREFIX)
+          ? output.investigations[i.medicationIndex]?.[
+              i.fieldName.slice(INVESTIGATION_PREFIX.length) as InvestigationField
+            ]?.approximate
+          : output.medications[i.medicationIndex]?.[i.fieldName as ExtractedField]?.approximate,
+    ),
   });
   const view: ExtractionView = {
     runId: run.id,
-    documentId: doc.id,
-    provider: outcome.provider,
-    model: outcome.model,
-    attempts: outcome.attempts,
+    lockVersion: c.lockVersion,
+    documentId: run.documentId,
+    provider: run.provider,
+    model: run.model,
+    attempts: raw.attempts ?? [],
     documentType: output.documentType,
     notes: output.documentNotes,
+    readability: output.readability,
+    patientMatch: patientInitialsMatch(c.patientInitials, output.patient.initials.value),
+    reportInitials: c.patientInitials,
+    documentInitials: output.patient.initials.value,
     singles: [],
     investigations: [],
     medications: [],
   };
-  for (const item of items) {
+  for (const item of run.items) {
     if (item.fieldName.startsWith(SINGLE_PREFIX)) {
       const field = item.fieldName.slice(SINGLE_PREFIX.length) as SingleField;
       view.singles.push({ field, proposal: proposal(item), current: currentValue(c, field) });
@@ -262,24 +353,46 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
   view.investigations.sort((a, b) => a.index - b.index);
   view.medications.sort((a, b) => a.index - b.index);
 
-  await writeAudit({
-    institutionId: user.institutionId,
-    actorId: user.id,
-    caseId: c.id,
-    action: "EXTRACTION_RUN",
-    details: {
-      runId: run.id,
-      status: "SUCCEEDED",
-      provider: outcome.provider,
-      model: outcome.model,
-      documentType: output.documentType,
-      values: view.singles.length,
-      investigations: output.investigations.length,
-      medications: output.medications.length,
-      attempts: outcome.attempts,
-    },
-  });
   return view;
+}
+
+export async function pendingExtractions(user: CurrentUser, caseId: string) {
+  const { access } = await loadCase(user, caseId);
+  if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "FORBIDDEN");
+  return db.extractionRun.findMany({
+    where: {
+      document: { caseId },
+      status: "SUCCEEDED",
+      items: { some: { status: "PENDING" }, every: { status: "PENDING" } },
+    },
+    orderBy: { startedAt: "desc" },
+    take: 20,
+    select: { id: true, document: { select: { originalName: true } } },
+  });
+}
+
+export async function discardExtraction(user: CurrentUser, caseId: string, runId: string) {
+  return db.$transaction(async (tx) => {
+    const { access } = await lockCase(user, caseId, tx);
+    if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "FORBIDDEN");
+    const run = await tx.extractionRun.findFirst({ where: { id: runId, document: { caseId } } });
+    if (!run) throw new WorkflowError("This extraction was not found.", "NOT_FOUND");
+    await tx.extractedItem.updateMany({
+      where: { runId, status: "PENDING" },
+      data: { status: "REJECTED", decidedById: user.id, decidedAt: new Date() },
+    });
+    await writeAudit(
+      {
+        institutionId: user.institutionId,
+        actorId: user.id,
+        caseId,
+        action: "EXTRACTION_DISCARDED",
+        details: { runId },
+      },
+      tx,
+    );
+    return null;
+  });
 }
 
 const choiceSchema = z.object({
@@ -287,9 +400,13 @@ const choiceSchema = z.object({
   use: z.boolean(),
   value: z.string().max(4000),
   confirmedUncertain: z.boolean(),
+  approximate: z.boolean().default(false),
 });
 
 const applySchema = z.object({
+  lockVersion: z.number().int().min(0),
+  verifiedAgainstSource: z.boolean().default(false),
+  confirmedPatientMatch: z.boolean().default(false),
   singles: z.array(choiceSchema.extend({ mode: z.enum(["replace", "append"]).default("replace") })).default([]),
   investigations: z
     .array(z.object({ index: z.number().int().min(0), add: z.boolean(), fields: z.array(choiceSchema) }))
@@ -324,17 +441,48 @@ function checkChoice(item: ItemRow, label: string, value: string, confirmedUncer
 export async function applyExtraction(user: CurrentUser, caseId: string, runId: string, input: unknown) {
   const parsed = applySchema.safeParse(input);
   if (!parsed.success) throw new WorkflowError("The choices could not be read. Reload and try again.");
+  if (!parsed.data.verifiedAgainstSource)
+    throw new WorkflowError("Verify the selected values against the source document before adding them.");
   return db.$transaction(
     async (tx) => {
-      const { c, access } = await loadCase(user, caseId, tx);
+      const { c, access } = await lockCase(user, caseId, tx);
       if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "CONFLICT");
+      if (c.lockVersion !== parsed.data.lockVersion)
+        throw new WorkflowError(
+          "The report changed since these suggestions were displayed. Reload saved suggestions and review the current values.",
+          "CONFLICT",
+        );
       const run = await tx.extractionRun.findFirst({
         where: { id: runId, status: "SUCCEEDED", document: { caseId: c.id } },
         include: { items: true },
       });
       if (!run) throw new WorkflowError("This extraction was not found.", "NOT_FOUND");
+      const raw = run.rawResponse as unknown as { output?: unknown };
+      const parsedOutput = documentExtractionSchema.safeParse(raw?.output);
+      if (!parsedOutput.success)
+        throw new WorkflowError("Read the document again; its saved extraction uses an older format.");
+      const reviewed = reviewExtraction(parsedOutput.data);
+      if (reviewed.output.readability === "UNREADABLE")
+        throw new WorkflowError("Unreadable documents cannot populate a report. Upload a clearer copy.");
+      if (
+        patientInitialsMatch(c.patientInitials, reviewed.output.patient.initials.value) === "DIFFERENT" &&
+        !parsed.data.confirmedPatientMatch
+      )
+        throw new WorkflowError(
+          "The document and report have different patient initials. Verify that the document belongs to this report first.",
+        );
+      const flagged = new Set(reviewed.issues.map((p) => qualityKey(p.fieldName, p.index)));
+      run.items.forEach((i) => {
+        if (flagged.has(qualityKey(i.fieldName, i.medicationIndex))) i.uncertain = true;
+      });
       if (run.items.some((i) => i.status !== "PENDING"))
         throw new WorkflowError("These suggestions were already used.", "CONFLICT");
+      const ids = [
+        ...parsed.data.singles,
+        ...parsed.data.investigations.flatMap((i) => i.fields),
+        ...parsed.data.medications.flatMap((m) => m.fields),
+      ].map((i) => i.itemId);
+      if (new Set(ids).size !== ids.length) throw new WorkflowError("A suggestion was supplied more than once.");
       const items = new Map(run.items.map((i) => [i.id, i]));
       const lookup = (itemId: string) => {
         const item = items.get(itemId);
@@ -397,11 +545,11 @@ export async function applyExtraction(user: CurrentUser, caseId: string, runId: 
             break;
           case "reaction.startDate":
             caseData.reactionStartDate = value;
-            caseData.reactionStartDateApprox = false;
+            caseData.reactionStartDateApprox = choice.approximate;
             break;
           case "reaction.stopDate":
             caseData.reactionStopDate = value;
-            caseData.reactionStopDateApprox = false;
+            caseData.reactionStopDateApprox = choice.approximate;
             caseData.reactionOngoing = false;
             clearedUnknown.add("reactionStopDate");
             break;
@@ -454,6 +602,7 @@ export async function applyExtraction(user: CurrentUser, caseId: string, runId: 
                 testName: value("testName"),
                 result: value("result"),
                 date: value("date"),
+                dateApprox: used.find((u) => u.field === "date")?.f.approximate ?? false,
               },
               select: { id: true },
             })
@@ -489,7 +638,8 @@ export async function applyExtraction(user: CurrentUser, caseId: string, runId: 
           if (!FILLABLE[med.target as "SUSPECTED" | "CONCOMITANT"].includes(field))
             throw new WorkflowError(`${EXTRACTED_FIELD_LABELS[field]} cannot be added to this kind of medicine.`);
           checkChoice(item, EXTRACTED_FIELD_LABELS[field], f.value.trim(), f.confirmedUncertain);
-          if (f.value.trim().length > 300) throw new WorkflowError(`${EXTRACTED_FIELD_LABELS[field]} is too long.`);
+          if (f.value.trim().length > (["name", "manufacturer", "indication"].includes(field) ? 200 : 100))
+            throw new WorkflowError(`${EXTRACTED_FIELD_LABELS[field]} is too long.`);
           if (DATE_FIELDS.includes(field) && !isValidPartialDate(f.value.trim()))
             throw new WorkflowError(
               `${EXTRACTED_FIELD_LABELS[field]} must be a date like 2026-10-12, 2026-10 or 2026.`,
@@ -513,10 +663,14 @@ export async function applyExtraction(user: CurrentUser, caseId: string, runId: 
                   route: value("route"),
                   frequency: value("frequency"),
                   startDate: value("startDate"),
+                  startDateApprox: used.find((u) => u.field === "startDate")?.f.approximate ?? false,
+                  stopDate: value("stopDate"),
+                  stopDateApprox: used.find((u) => u.field === "stopDate")?.f.approximate ?? false,
                   indication: value("indication"),
                   manufacturer: value("manufacturer"),
                   batchLot: value("batchLot"),
                   expiryDate: value("expiryDate"),
+                  expiryDateApprox: used.find((u) => u.field === "expiryDate")?.f.approximate ?? false,
                 },
                 select: { id: true },
               })
@@ -534,6 +688,9 @@ export async function applyExtraction(user: CurrentUser, caseId: string, runId: 
                   route: value("route"),
                   frequency: value("frequency"),
                   startDate: value("startDate"),
+                  startDateApprox: used.find((u) => u.field === "startDate")?.f.approximate ?? false,
+                  stopDate: value("stopDate"),
+                  stopDateApprox: used.find((u) => u.field === "stopDate")?.f.approximate ?? false,
                   indication: value("indication"),
                 },
                 select: { id: true },
@@ -559,6 +716,7 @@ export async function applyExtraction(user: CurrentUser, caseId: string, runId: 
         await tx.extractedItem.update({
           where: { id: d.item.id },
           data: {
+            uncertain: d.item.uncertain,
             status: d.finalValue === (d.item.proposedValue ?? "") ? "ACCEPTED" : "EDITED",
             finalValue: d.finalValue,
             decidedById: user.id,
@@ -594,7 +752,22 @@ export async function applyExtraction(user: CurrentUser, caseId: string, runId: 
           actorId: user.id,
           caseId: c.id,
           action: "EXTRACTION_APPLIED",
-          details: { runId: run.id, fieldsFilled: filled, investigationsAdded, medicinesAdded },
+          details: {
+            runId: run.id,
+            fieldsFilled: filled,
+            investigationsAdded,
+            medicinesAdded,
+            verifiedAgainstSource: true,
+            patientMatch: patientInitialsMatch(c.patientInitials, reviewed.output.patient.initials.value),
+            confirmedPatientMatch: parsed.data.confirmedPatientMatch,
+            verifiedFields: decisions
+              .filter((d) => d.used)
+              .map((d) => ({
+                itemId: d.item.id,
+                finalValue: d.finalValue,
+                uncertainReadingVerified: d.item.uncertain,
+              })),
+          },
         },
         tx,
       );

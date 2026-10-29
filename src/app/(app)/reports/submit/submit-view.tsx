@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AiReviewSummary } from "@/components/ai/ai-review-summary";
 import { CaseSummary } from "@/components/case/case-summary";
 import { StatusBadge } from "@/components/case-badges";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ export function SubmitReportView() {
                     className="h-[70vh] w-full bg-secondary"
                   />
                 </div>
+                <AiReviewSummary events={d.aiEvents} />
                 <CaseSummary snapshot={preview} />
               </div>
 

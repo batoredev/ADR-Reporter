@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, FileText, Loader2, ScanText, Sparkles, Upload } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { AiChain, AiSource } from "@/components/ai/ai-source";
-import { useSaveDraft } from "@/components/report-form/form-context";
+import { useServerChange, useSaveDraft } from "@/components/report-form/form-context";
 import { inputClass } from "@/components/report-form/fields";
 import {
   DATE_FIELDS,
@@ -22,7 +22,6 @@ import { AGE_UNIT_LABELS, GENDER_LABELS } from "@/lib/domain/labels";
 import { formatForDisplay } from "@/lib/domain/partial-date";
 import { FileLink, ProtectedFrame, useFileUrl } from "@/components/data/protected-file";
 import { actions, type UploadedDocumentView } from "@/lib/api/actions";
-import { refreshData } from "@/lib/api/use-api";
 import { files } from "@/lib/routes";
 import type { ExtractionView, ProposedValue } from "@/server/workflow/extraction";
 import type { AiStatus } from "@/server/ai/provider";
@@ -32,6 +31,7 @@ interface FieldChoice {
   use: boolean;
   value: string;
   confirmedUncertain: boolean;
+  approximate: boolean;
 }
 interface SingleChoice extends FieldChoice {
   mode: "replace" | "append";
@@ -56,6 +56,7 @@ const fresh = (p: ProposedValue | undefined, extra = true): FieldChoice => ({
   use: Boolean(p?.value) && !p?.uncertain && extra,
   value: p?.value ?? "",
   confirmedUncertain: false,
+  approximate: p?.approximate ?? false,
 });
 
 function initialChoices(run: ExtractionView) {
@@ -99,6 +100,7 @@ export function ExtractionPanel({
   documents: UploadedDocumentView[];
 }) {
   const saveDraft = useSaveDraft();
+  const serverChange = useServerChange();
   const fileRef = useRef<HTMLInputElement>(null);
   const [documents, setDocuments] = useState(initialDocuments);
   const [busy, setBusy] = useState<"upload" | "extract" | "apply" | null>(null);
@@ -106,6 +108,51 @@ export function ExtractionPanel({
   const [message, setMessage] = useState<string | null>(null);
   const [run, setRun] = useState<ExtractionView | null>(null);
   const [choices, setChoices] = useState<Choices | null>(null);
+  const [verifiedAgainstSource, setVerifiedAgainstSource] = useState(false);
+  const [confirmedPatientMatch, setConfirmedPatientMatch] = useState(false);
+  function updateChoices(update: Parameters<typeof setChoices>[0]) {
+    setVerifiedAgainstSource(false);
+    setChoices(update);
+  }
+
+  const [pending, setPending] = useState<{ id: string; document: { originalName: string } }[]>([]);
+  useEffect(() => {
+    let active = true;
+    void actions.pendingExtractions(caseId).then((r) => {
+      if (active && r.ok) setPending(r.data);
+    });
+    return () => {
+      active = false;
+    };
+  }, [caseId]);
+  async function resume(runId: string) {
+    setBusy("extract");
+    setError(null);
+    if (saveDraft && !(await saveDraft())) {
+      setBusy(null);
+      setError("Save the report first.");
+      return;
+    }
+    const r = await actions.extraction(caseId, runId);
+    if (r.ok) {
+      setVerifiedAgainstSource(false);
+      setConfirmedPatientMatch(false);
+      setRun(r.data);
+      setChoices(initialChoices(r.data));
+    } else setError(r.error);
+    setBusy(null);
+  }
+  async function discard() {
+    if (!run) return;
+    setBusy("apply");
+    const r = await actions.discardExtraction(caseId, run.runId);
+    if (!r.ok) setError(r.error);
+    else {
+      setPending((p) => p.filter((x) => x.id !== run.runId));
+      setRun(null);
+    }
+    setBusy(null);
+  }
 
   async function upload() {
     const file = fileRef.current?.files?.[0];
@@ -134,23 +181,43 @@ export function ExtractionPanel({
     setError(null);
     setMessage(null);
     setRun(null);
+    if (saveDraft && !(await saveDraft())) {
+      setBusy(null);
+      setError("Save the report first.");
+      return;
+    }
     const result = await actions.runExtraction(caseId, documentId);
     setBusy(null);
     if (!result.ok) {
       setError(result.error);
       return;
     }
+    setVerifiedAgainstSource(false);
+    setConfirmedPatientMatch(false);
     setRun(result.data);
     setChoices(initialChoices(result.data));
   }
 
   const setSingle = (itemId: string, patch: Partial<SingleChoice>) =>
-    setChoices((c) => c && { ...c, singles: { ...c.singles, [itemId]: { ...c.singles[itemId], ...patch } } });
+    updateChoices(
+      (c) =>
+        c && {
+          ...c,
+          singles: {
+            ...c.singles,
+            [itemId]: {
+              ...c.singles[itemId],
+              ...patch,
+              ...(patch.value !== undefined ? { confirmedUncertain: false } : {}),
+            },
+          },
+        },
+    );
   const setInvestigation = (
     i: number,
     patch: { add?: boolean; field?: InvestigationField; choice?: Partial<FieldChoice> },
   ) =>
-    setChoices(
+    updateChoices(
       (c) =>
         c && {
           ...c,
@@ -160,7 +227,14 @@ export function ExtractionPanel({
               : {
                   add: patch.add ?? inv.add,
                   fields: patch.field
-                    ? { ...inv.fields, [patch.field]: { ...inv.fields[patch.field], ...patch.choice } }
+                    ? {
+                        ...inv.fields,
+                        [patch.field]: {
+                          ...inv.fields[patch.field],
+                          ...patch.choice,
+                          ...(patch.choice?.value !== undefined ? { confirmedUncertain: false } : {}),
+                        },
+                      }
                     : inv.fields,
                 },
           ),
@@ -170,7 +244,7 @@ export function ExtractionPanel({
     i: number,
     patch: { target?: Target; field?: ExtractedField; choice?: Partial<FieldChoice> },
   ) =>
-    setChoices(
+    updateChoices(
       (c) =>
         c && {
           ...c,
@@ -180,7 +254,14 @@ export function ExtractionPanel({
               : {
                   target: patch.target ?? m.target,
                   fields: patch.field
-                    ? { ...m.fields, [patch.field]: { ...m.fields[patch.field], ...patch.choice } }
+                    ? {
+                        ...m.fields,
+                        [patch.field]: {
+                          ...m.fields[patch.field],
+                          ...patch.choice,
+                          ...(patch.choice?.value !== undefined ? { confirmedUncertain: false } : {}),
+                        },
+                      }
                     : m.fields,
                 },
           ),
@@ -188,7 +269,7 @@ export function ExtractionPanel({
     );
 
   async function apply() {
-    if (!run || !choices) return;
+    if (!run || !choices || !serverChange) return;
     setBusy("apply");
     setError(null);
     if (saveDraft && !(await saveDraft())) {
@@ -197,6 +278,9 @@ export function ExtractionPanel({
       return;
     }
     const payload = {
+      lockVersion: run.lockVersion,
+      verifiedAgainstSource,
+      confirmedPatientMatch,
       singles: run.singles.map((s) => {
         const c = choices.singles[s.proposal.itemId];
         return { itemId: s.proposal.itemId, ...c };
@@ -223,7 +307,7 @@ export function ExtractionPanel({
         })),
       })),
     };
-    const result = await actions.applyExtraction(caseId, run.runId, payload);
+    const result = await serverChange(() => actions.applyExtraction(caseId, run.runId, payload));
     setBusy(null);
     if (!result.ok) {
       setError(result.error);
@@ -239,7 +323,6 @@ export function ExtractionPanel({
     setMessage(
       parts.length ? `${parts.join(", ")}. Each value is marked as coming from the document.` : "Nothing was added.",
     );
-    refreshData();
   }
 
   const doc = run ? documents.find((d) => d.id === run.documentId) : null;
@@ -251,6 +334,23 @@ export function ExtractionPanel({
 
   return (
     <div className="space-y-3 rounded-lg border border-ai/25 bg-ai-soft/60 p-3 sm:p-4">
+      {pending.length ? (
+        <div className="space-y-1 text-sm">
+          <p>Saved suggestions awaiting your review:</p>
+          {pending.map((p) => (
+            <Button
+              key={p.id}
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => void resume(p.id)}
+            >
+              Review saved suggestions: {p.document.originalName}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold">
@@ -307,7 +407,7 @@ export function ExtractionPanel({
       {busy === "extract" ? (
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground" aria-live="polite">
           <Loader2 className="size-4 animate-spin" aria-hidden /> Reading the document… free services are tried first;
-          this can take up to a minute.
+          this can take up to three minutes.
         </p>
       ) : null}
       {error ? (
@@ -353,6 +453,7 @@ export function ExtractionPanel({
                       return (
                         <ProposalRow
                           key={s.proposal.itemId}
+                          isDate={kind === "date"}
                           label={SINGLE_FIELDS[s.field].label}
                           proposal={s.proposal}
                           choice={c}
@@ -444,6 +545,7 @@ export function ExtractionPanel({
                       {INV_FIELDS.map((f) => (
                         <ProposalRow
                           key={f}
+                          isDate={f === "date"}
                           label={INVESTIGATION_FIELD_LABELS[f]}
                           proposal={inv.fields[f]}
                           choice={c.fields[f]}
@@ -506,6 +608,7 @@ export function ExtractionPanel({
                         return (
                           <ProposalRow
                             key={f}
+                            isDate={DATE_FIELDS.includes(f)}
                             label={EXTRACTED_FIELD_LABELS[f]}
                             proposal={p}
                             choice={fc}
@@ -537,11 +640,52 @@ export function ExtractionPanel({
                 <p className="text-sm text-muted-foreground">Nothing usable was found on this document.</p>
               ) : null}
 
+              {run.readability !== "CLEAR" ? (
+                <p className="rounded border border-warning/30 p-2 text-sm text-warning">
+                  Parts of this document may be difficult to read. Check every selected value against the original.
+                </p>
+              ) : null}
+              {run.patientMatch === "DIFFERENT" ? (
+                <div className="rounded border border-warning/30 p-3 text-sm">
+                  <p className="font-medium text-warning">
+                    Different patient initials: report {run.reportInitials}, document {run.documentInitials}.
+                  </p>
+                  <label className="mt-2 flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={confirmedPatientMatch}
+                      onChange={(e) => setConfirmedPatientMatch(e.target.checked)}
+                    />
+                    I verified that this document belongs to this report despite the different initials.
+                  </label>
+                </div>
+              ) : null}
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={verifiedAgainstSource}
+                  onChange={(e) => setVerifiedAgainstSource(e.target.checked)}
+                />
+                I checked the selected values, dates, doses and units against the source document.
+              </label>
+
               <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={() => void apply()} disabled={busy !== null || chosen === 0}>
+                <Button type="button" variant="outline" disabled={busy !== null} onClick={() => void resume(run.runId)}>
+                  Reload saved suggestions
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void apply()}
+                  disabled={
+                    busy !== null ||
+                    chosen === 0 ||
+                    !verifiedAgainstSource ||
+                    (run.patientMatch === "DIFFERENT" && !confirmedPatientMatch)
+                  }
+                >
                   {busy === "apply" ? <Loader2 className="animate-spin" aria-hidden /> : null} Add to report
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => setRun(null)} disabled={busy !== null}>
+                <Button type="button" variant="ghost" onClick={() => void discard()} disabled={busy !== null}>
                   Discard suggestions
                 </Button>
               </div>
@@ -559,6 +703,7 @@ function ProposalRow({
   proposal,
   choice,
   disabled = false,
+  isDate = false,
   input,
   onChange,
   children,
@@ -567,6 +712,7 @@ function ProposalRow({
   proposal: ProposedValue;
   choice: FieldChoice;
   disabled?: boolean;
+  isDate?: boolean;
   input: ReactNode;
   onChange: (patch: Partial<FieldChoice>) => void;
   children?: ReactNode;
@@ -593,6 +739,27 @@ function ProposalRow({
         )}
         {proposal.sourceText ? (
           <p className="text-xs text-muted-foreground">Read as: &ldquo;{proposal.sourceText}&rdquo;</p>
+        ) : null}
+        {proposal.sourcePage ? (
+          <p className="text-xs text-muted-foreground">Source page {proposal.sourcePage}</p>
+        ) : null}
+        {proposal.warnings?.length ? (
+          <ul className="list-disc pl-4 text-xs text-warning">
+            {proposal.warnings.map((warning, i) => (
+              <li key={i}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+        {isDate && choice.value ? (
+          <label className="flex items-center gap-1.5 text-xs">
+            <input
+              type="checkbox"
+              checked={choice.approximate}
+              disabled={disabled}
+              onChange={(e) => onChange({ approximate: e.target.checked })}
+            />
+            Approximate date
+          </label>
         ) : null}
         {proposal.uncertain ? (
           <label className="flex items-center gap-1.5 text-xs text-warning">

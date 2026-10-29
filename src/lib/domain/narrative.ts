@@ -8,6 +8,8 @@ import { z } from "zod";
 export const narrativeSchema = z.object({
   narrative: z
     .string()
+    .min(1)
+    .max(4000)
     .describe("The narrative: factual, chronological, past tense, plain clinical English, at most about 150 words."),
   needsChecking: z
     .array(z.string())

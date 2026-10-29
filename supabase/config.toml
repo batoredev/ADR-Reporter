@@ -39,8 +39,6 @@ health_timeout = "2m"
 # The database major version to use. This has to be the same as your remote database's. Run `SHOW
 # server_version;` on the remote database to check.
 major_version = 17
-# OrioleDB version to use as the Postgres storage engine. Leave empty to use the default engine.
-orioledb_version = ""
 
 [db.pooler]
 enabled = false
@@ -103,7 +101,7 @@ openai_api_key = "env(OPENAI_API_KEY)"
 
 # Email testing server. Emails sent with the local dev setup are not actually sent - rather, they
 # are monitored, and you can view the emails that would have been sent from the web interface.
-[local_smtp]
+[inbucket]
 enabled = true
 # Port to use for the email testing server web interface.
 port = 54324
@@ -395,6 +393,8 @@ backend = "postgres"
 
 # Experimental features may be deprecated any time
 [experimental]
+# Supabase CLI 2.106.0 keeps the optional OrioleDB setting in this section.
+orioledb_version = ""
 # Configures S3 bucket URL, eg. <bucket_name>.s3-<region>.amazonaws.com
 s3_host = "env(S3_HOST)"
 # Configures S3 bucket region, eg. us-east-1

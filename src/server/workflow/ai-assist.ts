@@ -1,9 +1,10 @@
 import "server-only";
+import { z } from "zod";
+import { aiHistory, type FindingDecision, type SavedNarrative, type SavedCheck } from "@/lib/domain/ai-history";
 import type { Prisma } from "@/generated/prisma/client";
-import { CONSISTENCY_INSTRUCTIONS, consistencySchema, type ConsistencyFinding } from "@/lib/domain/ai-checks";
+import { CONSISTENCY_INSTRUCTIONS, consistencySchema } from "@/lib/domain/ai-checks";
 import { toFormValues, type CaseFormValues } from "@/lib/domain/case-form";
 import { assessCompleteness } from "@/lib/domain/completeness";
-import { DOCUMENT_TYPE_LABELS, type DocumentExtraction, type ExtractedValue } from "@/lib/domain/extraction";
 import {
   ACTION_TAKEN_LABELS,
   AGE_UNIT_LABELS,
@@ -16,11 +17,11 @@ import {
 } from "@/lib/domain/labels";
 import { NARRATIVE_INSTRUCTIONS, narrativeSchema, unsupportedDetails } from "@/lib/domain/narrative";
 import { formatForDisplay } from "@/lib/domain/partial-date";
-import { AiError, AiUnavailableError, generateWithFallback, type AiAttempt } from "@/server/ai/provider";
+import { AiError, AiUnavailableError, generateWithFallback } from "@/server/ai/provider";
 import { writeAudit } from "@/server/audit";
 import type { CurrentUser } from "@/server/auth/current-user";
 import { db } from "@/server/db";
-import { loadCase } from "./cases";
+import { loadCase, lockCase } from "./cases";
 import { WorkflowError } from "./errors";
 
 const label = <T extends string>(labels: Record<T, string>, v: T | "") => (v ? labels[v] : "");
@@ -36,6 +37,8 @@ export function describeReport(v: CaseFormValues): string {
     if (value && value.trim()) lines.push(`${name}: ${value.trim()}`);
   };
   add("Age at onset", v.ageValue ? `${v.ageValue} ${label(AGE_UNIT_LABELS, v.ageUnit).toLowerCase()}`.trim() : "");
+  add("Date of birth", date(v.dateOfBirth));
+  add("Explicitly unknown fields", v.unknownFields.join(", "));
   add("Gender", label(GENDER_LABELS, v.gender));
   add("Weight", v.weightKg ? `${v.weightKg} kg` : "");
   add("Reaction term(s)", v.reactionTerms);
@@ -64,6 +67,11 @@ export function describeReport(v: CaseFormValues): string {
         m.ongoing ? "ongoing" : date(m.stopDate) && `stopped ${date(m.stopDate)}`,
         m.indication && `for ${m.indication}`,
         m.actionTaken && `action taken: ${ACTION_TAKEN_LABELS[m.actionTaken]}`,
+        m.manufacturer && `manufacturer ${m.manufacturer}`,
+        m.batchLot && `batch ${m.batchLot}`,
+        date(m.expiryDate) && `expiry ${date(m.expiryDate)}`,
+        m.rechallengeDose && `dose on reintroduction ${m.rechallengeDose}`,
+        m.unknownFields.length && `unknown: ${m.unknownFields.join(", ")}`,
         m.rechallenge && `reintroduced: ${RECHALLENGE_LABELS[m.rechallenge]}`,
       ]
         .filter(Boolean)
@@ -76,6 +84,8 @@ export function describeReport(v: CaseFormValues): string {
       [
         p.name,
         p.dose && `dose ${p.dose}`,
+        p.route && `route ${p.route}`,
+        p.unknownFields.length && `unknown: ${p.unknownFields.join(", ")}`,
         p.frequency && `frequency ${p.frequency}`,
         date(p.startDate) && `started ${date(p.startDate)}`,
         p.ongoing ? "ongoing" : date(p.stopDate) && `stopped ${date(p.stopDate)}`,
@@ -95,47 +105,29 @@ async function documentFacts(caseId: string): Promise<string> {
   const runs = await db.extractionRun.findMany({
     where: { status: "SUCCEEDED", document: { caseId } },
     orderBy: { startedAt: "desc" },
-    include: { document: { select: { id: true, originalName: true } } },
+    take: 40,
+    include: { document: { select: { id: true, originalName: true } }, items: true },
   });
   const seen = new Set<string>();
   const blocks: string[] = [];
   for (const run of runs) {
     if (seen.has(run.document.id)) continue;
     seen.add(run.document.id);
-    const output = (run.rawResponse as { output?: Partial<DocumentExtraction> } | null)?.output;
-    if (!output) continue;
-    const v = (x: ExtractedValue | undefined) => x?.value ?? null;
-    const facts: string[] = [];
-    if (output.patient) {
-      const p = output.patient;
-      if (v(p.age)) facts.push(`age ${v(p.age)} ${(v(p.ageUnit) ?? "").toLowerCase()}`.trim());
-      if (v(p.gender)) facts.push(`gender ${v(p.gender)?.toLowerCase()}`);
-      if (v(p.weightKg)) facts.push(`weight ${v(p.weightKg)} kg`);
-    }
-    if (output.reaction) {
-      const r = output.reaction;
-      for (const [name, x] of Object.entries({
-        reaction: r.terms,
-        "reaction started": r.startDate,
-        "reaction stopped": r.stopDate,
-        description: r.description,
-        management: r.management,
-      }))
-        if (v(x)) facts.push(`${name}: ${v(x)}`);
-    }
-    if (v(output.medicalHistory)) facts.push(`history: ${v(output.medicalHistory)}`);
-    for (const i of output.investigations ?? [])
-      facts.push(`test: ${[v(i.testName), v(i.result), v(i.date)].filter(Boolean).join(" · ")}`);
-    for (const m of output.medications ?? [])
-      facts.push(
-        `medicine: ${[v(m.name), v(m.dose), v(m.frequency), v(m.startDate) && `from ${v(m.startDate)}`].filter(Boolean).join(", ")}`,
+    const facts = run.items
+      .filter((i) => i.status !== "REJECTED" && i.proposedValue && i.fieldName !== "case:patient.initials")
+      .map(
+        (i) =>
+          `${i.fieldName} [row ${i.medicationIndex + 1}; ${i.status}; ${i.uncertain ? "UNCERTAIN" : "AI reading"}]: ${JSON.stringify(i.finalValue ?? i.proposedValue)}; source text: ${JSON.stringify(i.sourceText)}`,
       );
-    if (facts.length) {
-      const type = output.documentType ? ` (${DOCUMENT_TYPE_LABELS[output.documentType]})` : "";
-      blocks.push(`${run.document.originalName}${type}:\n- ${facts.join("\n- ")}`);
-    }
+    if (facts.length)
+      blocks.push(
+        `Document ${run.document.id} (${run.document.originalName}), extraction ${run.id}:\n${facts.join("\n")}`,
+      );
   }
-  return blocks.join("\n\n");
+  const all = blocks.join("\n\n");
+  return all.length > 24000
+    ? all.slice(0, 24000) + "\n[Document context truncated; not a complete document review.]"
+    : all;
 }
 
 async function editableCase(user: CurrentUser, caseId: string) {
@@ -150,17 +142,7 @@ function aiFailure(error: unknown): never {
   throw new WorkflowError("The AI request failed unexpectedly. Nothing was changed.");
 }
 
-export interface NarrativeDraft {
-  draftId: string;
-  narrative: string;
-  needsChecking: string[];
-  leftOut: string[];
-  /** Numbers and months in the draft that appear in neither the notes nor the report. */
-  unsupported: string[];
-  provider: string;
-  model: string;
-  attempts: AiAttempt[];
-}
+export type NarrativeDraft = SavedNarrative;
 
 export async function draftNarrative(
   user: CurrentUser,
@@ -168,7 +150,8 @@ export async function draftNarrative(
   input: { notes: string; useReport: boolean },
 ): Promise<NarrativeDraft> {
   const { c } = await editableCase(user, caseId);
-  const notes = input.notes.trim().slice(0, 4000);
+  if (input.notes.length > 4000) throw new WorkflowError("Keep rough notes under 4000 characters.");
+  const notes = input.notes.trim();
   const report = input.useReport ? describeReport(toFormValues(c)) : "";
   if (!notes && !report) throw new WorkflowError("Write a few notes first, or include the report details.");
   let outcome;
@@ -209,6 +192,11 @@ export async function draftNarrative(
         model: outcome.model,
         notes,
         usedReport: input.useReport,
+        report,
+        lockVersion: c.lockVersion,
+        needsChecking,
+        leftOut,
+        meta: outcome.meta,
         narrative,
         unsupported,
         attempts: outcome.attempts,
@@ -218,6 +206,9 @@ export async function draftNarrative(
   });
   return {
     draftId: audit.id,
+    notes,
+    report,
+    lockVersion: c.lockVersion,
     narrative,
     needsChecking,
     leftOut,
@@ -228,37 +219,72 @@ export async function draftNarrative(
   };
 }
 
-/** Records that the reporter put an AI draft into item 7, and whether they edited it first. */
-export async function recordNarrativeUse(user: CurrentUser, caseId: string, input: { draftId: string; text: string }) {
-  const { c } = await editableCase(user, caseId);
-  const draft = await db.auditLog.findFirst({
-    where: { id: input.draftId, caseId: c.id, action: "AI_NARRATIVE_DRAFTED", actorId: user.id },
+/** Apply the verified text and append its complete audit record in one transaction. */
+export async function recordNarrativeUse(
+  user: CurrentUser,
+  caseId: string,
+  input: {
+    draftId: string;
+    text: string;
+    mode: "replace" | "append";
+    lockVersion: number;
+    verified: boolean;
+  },
+) {
+  if (!input.verified) throw new WorkflowError("Verify the narrative against the source before using it.");
+  if (!input.text.trim() || input.text.length > 4000) throw new WorkflowError("Enter between 1 and 4000 characters.");
+  return db.$transaction(async (tx) => {
+    const { c, access } = await lockCase(user, caseId, tx);
+    if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "FORBIDDEN");
+    if (c.lockVersion !== input.lockVersion)
+      throw new WorkflowError("This report changed. Reload and review the narrative again.", "CONFLICT");
+    const draft = await tx.auditLog.findFirst({
+      where: { id: input.draftId, caseId: c.id, action: "AI_NARRATIVE_DRAFTED", actorId: user.id },
+    });
+    if (!draft) throw new WorkflowError("This draft was not found.", "NOT_FOUND");
+    const decisions = await tx.auditLog.findMany({
+      where: { caseId, action: { in: ["AI_NARRATIVE_USED", "AI_NARRATIVE_DISCARDED"] } },
+    });
+    if (decisions.some((d) => (d.details as { draftId?: string })?.draftId === input.draftId))
+      throw new WorkflowError("This narrative was already used or discarded.", "CONFLICT");
+    const original = draft.details as unknown as SavedNarrative;
+    const text = input.text.trim();
+    const next = input.mode === "append" && c.reactionDescription ? `${c.reactionDescription}\n\n${text}` : text;
+    if (next.length > 4000)
+      throw new WorkflowError("The combined narrative exceeds 4000 characters. Shorten it first; nothing was changed.");
+    await tx.adrCase.update({
+      where: { id: c.id },
+      data: { reactionDescription: next, lockVersion: { increment: 1 } },
+    });
+    await tx.fieldProvenance.deleteMany({ where: { caseId, fieldPath: "reactionDescription" } });
+    await writeAudit(
+      {
+        institutionId: user.institutionId,
+        actorId: user.id,
+        caseId,
+        action: "AI_NARRATIVE_USED",
+        details: {
+          draftId: draft.id,
+          provider: original.provider,
+          model: original.model,
+          edited: text !== original.narrative.trim(),
+          original: original.narrative,
+          text,
+          previous: c.reactionDescription,
+          finalText: next,
+          mode: input.mode,
+          verified: true,
+          lockVersion: c.lockVersion + 1,
+          unsupported: unsupportedDetails(text, [original.notes ?? "", original.report ?? ""]),
+        },
+      },
+      tx,
+    );
+    return { lockVersion: c.lockVersion + 1 };
   });
-  if (!draft) throw new WorkflowError("This draft was not found.", "NOT_FOUND");
-  const original = (draft.details as { narrative?: string; provider?: string; model?: string } | null) ?? {};
-  await writeAudit({
-    institutionId: user.institutionId,
-    actorId: user.id,
-    caseId: c.id,
-    action: "AI_NARRATIVE_USED",
-    details: {
-      draftId: draft.id,
-      provider: original.provider,
-      model: original.model,
-      edited: input.text.trim() !== (original.narrative ?? "").trim(),
-    },
-  });
-  return null;
 }
 
-export interface ConsistencyResult {
-  checkId: string;
-  findings: ConsistencyFinding[];
-  provider: string;
-  model: string;
-  attempts: AiAttempt[];
-  usedDocuments: boolean;
-}
+export type ConsistencyResult = SavedCheck;
 
 export async function checkConsistency(user: CurrentUser, caseId: string): Promise<ConsistencyResult> {
   const { c } = await editableCase(user, caseId);
@@ -275,7 +301,9 @@ export async function checkConsistency(user: CurrentUser, caseId: string): Promi
       system: CONSISTENCY_INSTRUCTIONS,
       prompt: [
         `The report:\n${report}`,
-        docs ? `What was read from the uploaded documents:\n${docs}` : "No documents were uploaded.",
+        docs
+          ? `What was read from the uploaded documents:\n${docs}`
+          : "No usable extracted document facts are available. Uploaded files were not read in this check.",
         alreadyChecked.length
           ? `Already pointed out by the app (do not repeat):\n- ${alreadyChecked.join("\n- ")}`
           : "",
@@ -307,6 +335,11 @@ export async function checkConsistency(user: CurrentUser, caseId: string): Promi
         provider: outcome.provider,
         model: outcome.model,
         findings,
+        report,
+        documentFacts: docs,
+        usedDocuments: Boolean(docs),
+        lockVersion: c.lockVersion,
+        meta: outcome.meta,
         attempts: outcome.attempts,
       } as unknown as Prisma.InputJsonValue,
     },
@@ -319,28 +352,82 @@ export async function checkConsistency(user: CurrentUser, caseId: string): Promi
     model: outcome.model,
     attempts: outcome.attempts,
     usedDocuments: Boolean(docs),
+    lockVersion: c.lockVersion,
+    decisions: {},
   };
 }
 
-/** The reporter looked at an AI finding and kept the report as it is, with an optional reason. */
-export async function keepFinding(
-  user: CurrentUser,
-  caseId: string,
-  input: { checkId: string; index: number; reason: string },
-) {
-  const { c } = await editableCase(user, caseId);
-  const check = await db.auditLog.findFirst({
-    where: { id: input.checkId, caseId: c.id, action: "AI_CHECK_RUN", actorId: user.id },
+export async function getAiHistory(user: CurrentUser, caseId: string) {
+  await loadCase(user, caseId);
+  const events = await db.auditLog.findMany({
+    where: { caseId, action: { startsWith: "AI_" } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
-  const findings = (check?.details as { findings?: ConsistencyFinding[] } | null)?.findings;
-  const finding = findings?.[input.index];
-  if (!finding) throw new WorkflowError("This finding was not found.", "NOT_FOUND");
+  const guided = await db.auditLog.findFirst({
+    where: { caseId, action: "GUIDED_STEP_SAVED" },
+    orderBy: { createdAt: "desc" },
+  });
+  return aiHistory(guided ? [...events, guided] : events);
+}
+
+export async function discardNarrative(user: CurrentUser, caseId: string, draftId: string) {
+  await editableCase(user, caseId);
+  const draft = await db.auditLog.findFirst({
+    where: { id: draftId, caseId, actorId: user.id, action: "AI_NARRATIVE_DRAFTED" },
+  });
+  if (!draft) throw new WorkflowError("This draft was not found.", "NOT_FOUND");
   await writeAudit({
     institutionId: user.institutionId,
     actorId: user.id,
-    caseId: c.id,
-    action: "AI_CHECK_KEPT",
-    details: { checkId: check!.id, finding: finding.message, reason: input.reason.trim().slice(0, 500) || null },
+    caseId,
+    action: "AI_NARRATIVE_DISCARDED",
+    details: { draftId },
   });
   return null;
+}
+
+export async function keepFinding(
+  user: CurrentUser,
+  caseId: string,
+  input: {
+    checkId: string;
+    index: number;
+    reason: string;
+    decision?: FindingDecision;
+  },
+) {
+  const parsed = z
+    .object({
+      checkId: z.string(),
+      index: z.number().int().min(0),
+      reason: z.string().trim().max(500),
+      decision: z.enum(["KEPT", "CORRECTED", "UNSURE"]).default("KEPT"),
+    })
+    .safeParse(input);
+  if (!parsed.success) throw new WorkflowError("Choose a valid finding and decision (reason: at most 500 characters).");
+  const d = parsed.data;
+  if (d.decision === "KEPT" && !d.reason) throw new WorkflowError("Explain why you are keeping the recorded value.");
+  return db.$transaction(async (tx) => {
+    const { c, access } = await lockCase(user, caseId, tx);
+    if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "FORBIDDEN");
+    const check = await tx.auditLog.findFirst({
+      where: { id: d.checkId, caseId, action: "AI_CHECK_RUN", actorId: user.id },
+    });
+    const saved = check?.details as unknown as SavedCheck | undefined;
+    const finding = saved?.findings?.[d.index];
+    if (!finding) throw new WorkflowError("This finding was not found.", "NOT_FOUND");
+    if (d.decision === "CORRECTED" && c.lockVersion === saved?.lockVersion)
+      throw new WorkflowError("Save your correction to the report first.");
+    await writeAudit(
+      {
+        institutionId: user.institutionId,
+        actorId: user.id,
+        caseId,
+        action: "AI_FINDING_DECIDED",
+        details: { ...d, finding: finding.message, lockVersion: c.lockVersion },
+      },
+      tx,
+    );
+    return null;
+  });
 }

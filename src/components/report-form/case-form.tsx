@@ -64,7 +64,8 @@ import {
   type FormPath,
   type IssueView,
 } from "./fields";
-import { SaveDraftContext } from "./form-context";
+import { DraftVersionContext, SaveDraftContext, ServerChangeContext, type ServerChange } from "./form-context";
+import { GuidedReporter } from "./guided-reporter";
 import { NarrativeHelper } from "./narrative-helper";
 
 const options = (labels: Record<string, string>) => Object.entries(labels).map(([value, label]) => ({ value, label }));
@@ -83,6 +84,7 @@ export interface CaseFormProps {
   ai: AiStatus;
   /** Rendered at the top of section C (document extraction). */
   extractionSlot?: ReactNode;
+  initialGuided?: boolean;
 }
 
 function Section({
@@ -119,8 +121,14 @@ export function CaseForm({
   hasOpenEscalation,
   ai,
   extractionSlot,
+  initialGuided = false,
 }: CaseFormProps) {
   const router = useRouter();
+  const [guided, setGuided] = useState(initialGuided);
+  function changeMode(next: boolean) {
+    setGuided(next);
+    router.replace(`${pages.caseEdit(caseId)}${next ? "&mode=guided" : ""}`, { scroll: false });
+  }
   const form = useForm<CaseFormValues>({
     defaultValues: initialValues,
     resolver: zodResolver(caseFormSchema),
@@ -137,6 +145,8 @@ export function CaseForm({
   // Mirrors savedJson for rendering; the ref serves the async save and unload checks.
   const [savedText, setSavedText] = useState(() => JSON.stringify(initialValues));
   const inFlight = useRef<Promise<boolean> | null>(null);
+  const mutation = useRef<"saving" | "applying" | null>(null);
+  const [serverChanging, setServerChanging] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
   const [escalateOpen, setEscalateOpen] = useState(false);
   const [escalateNote, setEscalateNote] = useState("");
@@ -147,44 +157,80 @@ export function CaseForm({
   const json = JSON.stringify(values);
   const dirty = json !== savedText;
 
-  const save = useCallback(async (): Promise<boolean> => {
-    if (inFlight.current) await inFlight.current;
-    const snapshot = getValues();
-    const text = JSON.stringify(snapshot);
-    if (text === savedJson.current) return true;
-    if (!(await trigger())) {
-      setSaveState({ kind: "error", message: "Some fields need fixing before the draft can be saved." });
-      return false;
-    }
-    const run = (async () => {
-      setSaveState({ kind: "saving" });
-      const result = await actions.saveDraft(caseId, lockRef.current, snapshot);
-      if (!result.ok) {
-        setSaveState({ kind: "error", message: result.error });
+  const save = useCallback(
+    async function saveCurrentDraft(): Promise<boolean> {
+      if (mutation.current === "applying") return false;
+      if (inFlight.current) {
+        await inFlight.current;
+        return saveCurrentDraft();
+      }
+      const snapshot = structuredClone(getValues());
+      const text = JSON.stringify(snapshot);
+      if (text === savedJson.current) return true;
+      if (!(await trigger())) {
+        setSaveState({ kind: "error", message: "Some fields need fixing before the draft can be saved." });
         return false;
       }
-      lockRef.current = result.data.lockVersion;
-      const { rowIds } = result.data;
-      rowIds.suspected.forEach((id, i) => setValue(`suspectedMedicines.${i}.id`, id));
-      rowIds.concomitant.forEach((id, i) => setValue(`concomitantProducts.${i}.id`, id));
-      rowIds.investigations.forEach((id, i) => setValue(`investigations.${i}.id`, id));
-      savedJson.current = JSON.stringify({
-        ...snapshot,
-        suspectedMedicines: snapshot.suspectedMedicines.map((r, i) => ({ ...r, id: rowIds.suspected[i] })),
-        concomitantProducts: snapshot.concomitantProducts.map((r, i) => ({ ...r, id: rowIds.concomitant[i] })),
-        investigations: snapshot.investigations.map((r, i) => ({ ...r, id: rowIds.investigations[i] })),
-      });
-      setSavedText(savedJson.current);
-      setSaveState({ kind: "saved", at: result.data.savedAt });
-      return true;
-    })();
-    inFlight.current = run;
-    try {
-      return await run;
-    } finally {
-      inFlight.current = null;
-    }
-  }, [caseId, getValues, setValue, trigger]);
+      const run = (async () => {
+        setSaveState({ kind: "saving" });
+        const result = await actions.saveDraft(caseId, lockRef.current, snapshot);
+        if (!result.ok) {
+          setSaveState({ kind: "error", message: result.error });
+          return false;
+        }
+        lockRef.current = result.data.lockVersion;
+        const { rowIds } = result.data;
+        rowIds.suspected.forEach((id, i) => setValue(`suspectedMedicines.${i}.id`, id));
+        rowIds.concomitant.forEach((id, i) => setValue(`concomitantProducts.${i}.id`, id));
+        rowIds.investigations.forEach((id, i) => setValue(`investigations.${i}.id`, id));
+        savedJson.current = JSON.stringify({
+          ...snapshot,
+          suspectedMedicines: snapshot.suspectedMedicines.map((r, i) => ({ ...r, id: rowIds.suspected[i] })),
+          concomitantProducts: snapshot.concomitantProducts.map((r, i) => ({ ...r, id: rowIds.concomitant[i] })),
+          investigations: snapshot.investigations.map((r, i) => ({ ...r, id: rowIds.investigations[i] })),
+        });
+        setSavedText(savedJson.current);
+        setSaveState({ kind: "saved", at: result.data.savedAt });
+        return true;
+      })();
+      inFlight.current = run;
+      try {
+        return await run;
+      } finally {
+        inFlight.current = null;
+      }
+    },
+    [caseId, getValues, setValue, trigger],
+  );
+
+  const serverChange: ServerChange = useCallback(
+    async (change) => {
+      if (mutation.current) return { ok: false, error: "A report change is already in progress." };
+      mutation.current = "saving";
+      setServerChanging(true);
+      let applied = false;
+      try {
+        if (!(await save())) return { ok: false, error: "Save the report first. Check the form for errors." };
+        // Flush any input made before the fieldset became disabled.
+        if (JSON.stringify(getValues()) !== savedJson.current && !(await save()))
+          return { ok: false, error: "Save the latest changes first." };
+        mutation.current = "applying";
+        const result = await change(lockRef.current);
+        if (result.ok) {
+          applied = true;
+          refreshData();
+        }
+        return result;
+      } finally {
+        // Successful changes remount this form with the new server version.
+        if (!applied) {
+          mutation.current = null;
+          setServerChanging(false);
+        }
+      }
+    },
+    [save, getValues],
+  );
 
   // Autosave 1.5 s after the last change.
   useEffect(() => {
@@ -235,536 +281,617 @@ export function CaseForm({
 
   return (
     <FormProvider {...form}>
-      <SaveDraftContext value={save}>
-        <datalist id="frequency-options">
-          {FREQUENCY_SUGGESTIONS.map((f) => (
-            <option key={f} value={f} />
-          ))}
-        </datalist>
-        <datalist id="route-options">
-          {ROUTE_SUGGESTIONS.map((r) => (
-            <option key={r} value={r} />
-          ))}
-        </datalist>
+      <DraftVersionContext value={() => lockRef.current}>
+        <ServerChangeContext value={serverChange}>
+          <SaveDraftContext value={save}>
+            <fieldset disabled={serverChanging} className="contents" aria-busy={serverChanging}>
+              <datalist id="frequency-options">
+                {FREQUENCY_SUGGESTIONS.map((f) => (
+                  <option key={f} value={f} />
+                ))}
+              </datalist>
+              <datalist id="route-options">
+                {ROUTE_SUGGESTIONS.map((r) => (
+                  <option key={r} value={r} />
+                ))}
+              </datalist>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <form className="min-w-0 space-y-5" onSubmit={(e) => e.preventDefault()} noValidate>
-            {serious ? (
-              <div className="flex flex-col gap-3 rounded-lg border border-serious/30 bg-serious-soft px-4 py-3 text-serious sm:flex-row sm:items-center sm:justify-between">
-                <p className="flex gap-2 text-sm">
-                  <Siren className="mt-0.5 size-4 shrink-0" aria-hidden />
-                  <span>
-                    <span className="font-medium">Potentially serious.</span> This report will be flagged and
-                    prioritised for review.{" "}
-                    {escalated
-                      ? "An urgent escalation is open: the designated urgent contacts have been alerted."
-                      : "If it is urgent, escalate it now; you can finish the report afterwards."}
-                  </span>
-                </p>
-                {!escalated ? (
-                  <Button type="button" variant="destructive" onClick={() => setEscalateOpen(true)}>
-                    <Siren aria-hidden />
-                    Escalate urgently
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <form className="min-w-0 space-y-5" onSubmit={(e) => e.preventDefault()} noValidate>
+                  {serious ? (
+                    <div className="flex flex-col gap-3 rounded-lg border border-serious/30 bg-serious-soft px-4 py-3 text-serious sm:flex-row sm:items-center sm:justify-between">
+                      <p className="flex gap-2 text-sm">
+                        <Siren className="mt-0.5 size-4 shrink-0" aria-hidden />
+                        <span>
+                          <span className="font-medium">Potentially serious.</span> This report will be flagged and
+                          prioritised for review.{" "}
+                          {escalated
+                            ? "An urgent escalation is open: the designated urgent contacts have been alerted."
+                            : "If it is urgent, escalate it now; you can finish the report afterwards."}
+                        </span>
+                      </p>
+                      {!escalated ? (
+                        <Button type="button" variant="destructive" onClick={() => setEscalateOpen(true)}>
+                          <Siren aria-hidden />
+                          Escalate urgently
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
 
-            <Section
-              id="section-a"
-              title="A. Patient information"
-              description="Use initials only. Never enter a name or hospital number."
-            >
-              <div className="grid gap-4 sm:grid-cols-3">
-                <TextField
-                  name="patientInitials"
-                  label="1. Patient initials"
-                  required
-                  placeholder="e.g. R.K."
-                  issues={issues("patientInitials")}
-                />
-                <TextField
-                  name="ageValue"
-                  label="2. Age at onset"
-                  inputMode="numeric"
-                  placeholder="e.g. 34"
-                  issues={issues("age")}
-                  issuePath="age"
-                />
-                <SelectField name="ageUnit" label="Age unit" options={options(AGE_UNIT_LABELS)} />
-              </div>
-              <PartialDateField
-                name="dateOfBirth"
-                label="Or date of birth"
-                hint="Age at onset or date of birth is mandatory; one is enough."
-              />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <RadioField
-                  name="gender"
-                  label="3. Gender"
-                  options={options(GENDER_LABELS)}
-                  unknown={unknownCase("gender")}
-                  issues={issues("gender")}
-                />
-                <TextField
-                  name="weightKg"
-                  label="4. Weight (kg)"
-                  inputMode="decimal"
-                  placeholder="e.g. 58"
-                  unknown={unknownCase("weightKg")}
-                  issues={issues("weightKg")}
-                />
-              </div>
-            </Section>
+                  {guided ? (
+                    <GuidedReporter
+                      caseId={caseId}
+                      ai={ai}
+                      extractionSlot={extractionSlot}
+                      onStructured={() => changeMode(false)}
+                      rows={{
+                        suspectedMedicines: {
+                          count: suspected.fields.length,
+                          add: () => suspected.append(emptySuspectedMedicine()),
+                          remove: suspected.remove,
+                        },
+                        concomitantProducts: {
+                          count: concomitant.fields.length,
+                          add: () => concomitant.append(emptyConcomitantProduct()),
+                          remove: concomitant.remove,
+                        },
+                        investigations: {
+                          count: investigations.fields.length,
+                          add: () => investigations.append(emptyInvestigation()),
+                          remove: investigations.remove,
+                        },
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <Button type="button" variant="outline" onClick={() => changeMode(true)}>
+                        Switch to guided reporting
+                      </Button>
+                      <Section
+                        id="section-a"
+                        title="A. Patient information"
+                        description="Use initials only. Never enter a name or hospital number."
+                      >
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          <TextField
+                            name="patientInitials"
+                            label="1. Patient initials"
+                            required
+                            placeholder="e.g. R.K."
+                            issues={issues("patientInitials")}
+                          />
+                          <TextField
+                            name="ageValue"
+                            label="2. Age at onset"
+                            inputMode="numeric"
+                            placeholder="e.g. 34"
+                            issues={issues("age")}
+                            issuePath="age"
+                          />
+                          <SelectField name="ageUnit" label="Age unit" options={options(AGE_UNIT_LABELS)} />
+                        </div>
+                        <PartialDateField
+                          name="dateOfBirth"
+                          label="Or date of birth"
+                          hint="Age at onset or date of birth is mandatory; one is enough."
+                        />
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <RadioField
+                            name="gender"
+                            label="3. Gender"
+                            options={options(GENDER_LABELS)}
+                            unknown={unknownCase("gender")}
+                            issues={issues("gender")}
+                          />
+                          <TextField
+                            name="weightKg"
+                            label="4. Weight (kg)"
+                            inputMode="decimal"
+                            placeholder="e.g. 58"
+                            unknown={unknownCase("weightKg")}
+                            issues={issues("weightKg")}
+                          />
+                        </div>
+                      </Section>
 
-            <Section id="section-b" title="B. Suspected adverse reaction">
-              <TextField
-                name="reactionTerms"
-                label="Reaction term(s)"
-                required
-                placeholder="e.g. Maculopapular rash"
-                hint="Printed first in item 7 of the form."
-                issues={issues("reactionTerms")}
-              />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <PartialDateField
-                  name="reactionStartDate"
-                  label="5. Reaction start date"
-                  required
-                  issues={issues("reactionStartDate")}
-                />
-                <div className="space-y-2">
-                  <PartialDateField
-                    name="reactionStopDate"
-                    label="6. Reaction stop date"
-                    disabled={values.reactionOngoing}
-                    unknown={unknownCase("reactionStopDate")}
-                    issues={issues("reactionStopDate")}
-                  />
-                  <label className="flex items-center gap-1.5 text-sm">
-                    <input type="checkbox" className="size-4 accent-primary" {...form.register("reactionOngoing")} />
-                    Reaction is ongoing
-                  </label>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <TextField
-                  name="reactionDescription"
-                  label="7. Describe the reaction"
-                  multiline
-                  issues={issues("reactionDescription")}
-                />
-                <NarrativeHelper caseId={caseId} ai={ai} />
-              </div>
-              <TextField
-                name="reactionManagement"
-                label="7. Management of the reaction"
-                multiline
-                hint="Medicines given to treat the reaction are added in section C as concomitant products with 'Used to treat the reaction' ticked."
-                issues={issues("reactionManagement")}
-              />
-              <TextField
-                name="medicalHistory"
-                label="13. Relevant medical and medication history"
-                multiline
-                unknown={unknownCase("medicalHistory")}
-                issues={issues("medicalHistory")}
-              />
-              <CheckboxGroup
-                name="historyFlags"
-                label="Relevant to this report"
-                options={options(HISTORY_FLAG_LABELS)}
-              />
-              <div className="space-y-3 rounded-lg border bg-secondary/60 p-3">
-                <RadioField
-                  name="seriousAnswer"
-                  label="14. Is the reaction serious?"
-                  options={options(SERIOUS_ANSWER_LABELS)}
-                  unknown={unknownCase("seriousAnswer")}
-                  issues={issues("seriousAnswer")}
-                />
-                <CheckboxGroup
-                  name="seriousnessCriteria"
-                  label="Seriousness criteria (tick all that apply)"
-                  options={options(SERIOUSNESS_CRITERION_LABELS)}
-                  hint="Any criterion marks the report as potentially serious."
-                  issues={issues("seriousnessCriteria")}
-                />
-                {criteria.includes("DEATH") ? (
-                  <PartialDateField name="deathDate" label="Date of death" issues={issues("deathDate")} />
-                ) : null}
-              </div>
-              <RadioField
-                name="outcome"
-                label="15. Outcome"
-                options={options(OUTCOME_LABELS)}
-                unknown={unknownCase("outcome")}
-                issues={issues("outcome")}
-              />
-              <div className="space-y-3" id={fieldId("investigations")}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">12. Relevant investigations</h3>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => investigations.append(emptyInvestigation())}
-                  >
-                    <Plus aria-hidden /> Add investigation
-                  </Button>
-                </div>
-                {investigations.fields.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground">No investigations added.</p>
-                ) : null}
-                {investigations.fields.map((row, i) => {
-                  const base = `investigations.${row.id ?? "new"}`;
-                  return (
-                    <div key={row.key} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto]">
-                      <TextField
-                        name={`investigations.${i}.testName`}
-                        label="Test"
-                        issues={issues(`${base}.testName`)}
-                        issuePath={`${base}.testName`}
-                      />
-                      <TextField
-                        name={`investigations.${i}.result`}
-                        label="Result"
-                        issues={issues(`${base}.result`)}
-                        issuePath={`${base}.result`}
-                      />
-                      <div className="flex items-end">
+                      <Section id="section-b" title="B. Suspected adverse reaction">
+                        <TextField
+                          name="reactionTerms"
+                          label="Reaction term(s)"
+                          required
+                          placeholder="e.g. Maculopapular rash"
+                          hint="Printed first in item 7 of the form."
+                          issues={issues("reactionTerms")}
+                        />
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <PartialDateField
+                            name="reactionStartDate"
+                            label="5. Reaction start date"
+                            required
+                            issues={issues("reactionStartDate")}
+                          />
+                          <div className="space-y-2">
+                            <PartialDateField
+                              name="reactionStopDate"
+                              label="6. Reaction stop date"
+                              disabled={values.reactionOngoing}
+                              unknown={unknownCase("reactionStopDate")}
+                              issues={issues("reactionStopDate")}
+                            />
+                            <label className="flex items-center gap-1.5 text-sm">
+                              <input
+                                type="checkbox"
+                                className="size-4 accent-primary"
+                                {...form.register("reactionOngoing")}
+                              />
+                              Reaction is ongoing
+                            </label>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <TextField
+                            name="reactionDescription"
+                            label="7. Describe the reaction"
+                            multiline
+                            issues={issues("reactionDescription")}
+                          />
+                          <NarrativeHelper caseId={caseId} ai={ai} />
+                        </div>
+                        <TextField
+                          name="reactionManagement"
+                          label="7. Management of the reaction"
+                          multiline
+                          hint="Medicines given to treat the reaction are added in section C as concomitant products with 'Used to treat the reaction' ticked."
+                          issues={issues("reactionManagement")}
+                        />
+                        <TextField
+                          name="medicalHistory"
+                          label="13. Relevant medical and medication history"
+                          multiline
+                          unknown={unknownCase("medicalHistory")}
+                          issues={issues("medicalHistory")}
+                        />
+                        <CheckboxGroup
+                          name="historyFlags"
+                          label="Relevant to this report"
+                          options={options(HISTORY_FLAG_LABELS)}
+                        />
+                        <div className="space-y-3 rounded-lg border bg-secondary/60 p-3">
+                          <RadioField
+                            name="seriousAnswer"
+                            label="14. Is the reaction serious?"
+                            options={options(SERIOUS_ANSWER_LABELS)}
+                            unknown={unknownCase("seriousAnswer")}
+                            issues={issues("seriousAnswer")}
+                          />
+                          <CheckboxGroup
+                            name="seriousnessCriteria"
+                            label="Seriousness criteria (tick all that apply)"
+                            options={options(SERIOUSNESS_CRITERION_LABELS)}
+                            hint="Any criterion marks the report as potentially serious."
+                            issues={issues("seriousnessCriteria")}
+                          />
+                          {criteria.includes("DEATH") ? (
+                            <PartialDateField name="deathDate" label="Date of death" issues={issues("deathDate")} />
+                          ) : null}
+                        </div>
+                        <RadioField
+                          name="outcome"
+                          label="15. Outcome"
+                          options={options(OUTCOME_LABELS)}
+                          unknown={unknownCase("outcome")}
+                          issues={issues("outcome")}
+                        />
+                        <div className="space-y-3" id={fieldId("investigations")}>
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-semibold">12. Relevant investigations</h3>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => investigations.append(emptyInvestigation())}
+                            >
+                              <Plus aria-hidden /> Add investigation
+                            </Button>
+                          </div>
+                          {investigations.fields.length === 0 ? (
+                            <p className="text-[13px] text-muted-foreground">No investigations added.</p>
+                          ) : null}
+                          {investigations.fields.map((row, i) => {
+                            const base = `investigations.${row.id ?? "new"}`;
+                            return (
+                              <div
+                                key={row.key}
+                                className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto]"
+                              >
+                                <TextField
+                                  name={`investigations.${i}.testName`}
+                                  label="Test"
+                                  issues={issues(`${base}.testName`)}
+                                  issuePath={`${base}.testName`}
+                                />
+                                <TextField
+                                  name={`investigations.${i}.result`}
+                                  label="Result"
+                                  issues={issues(`${base}.result`)}
+                                  issuePath={`${base}.result`}
+                                />
+                                <div className="flex items-end">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => investigations.remove(i)}
+                                    aria-label={`Remove investigation ${i + 1}`}
+                                  >
+                                    <Trash2 aria-hidden />
+                                  </Button>
+                                </div>
+                                <PartialDateField
+                                  className="sm:col-span-3"
+                                  name={`investigations.${i}.date`}
+                                  label="Date"
+                                  unknown={{ listPath: `investigations.${i}.unknownFields`, field: "date" }}
+                                  issues={issues(`${base}.date`)}
+                                  issuePath={`${base}.date`}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </Section>
+
+                      <Section
+                        id="section-c"
+                        title="C. Suspected medication(s)"
+                        description="Add each medicine you suspect. Use the full name as written; anything too long for the official box goes on a continuation sheet."
+                      >
+                        {extractionSlot}
+                        {issues("suspectedMedicines") ? (
+                          <div className="text-[13px] text-warning">
+                            {issues("suspectedMedicines")
+                              ?.map((x) => x.body)
+                              .join(" ")}
+                          </div>
+                        ) : null}
+                        {suspected.fields.map((row, i) => {
+                          const base = `suspectedMedicines.${row.id ?? "new"}`;
+                          const unknownRow = (field: string) => ({
+                            listPath: `suspectedMedicines.${i}.unknownFields` as FormPath,
+                            field,
+                          });
+                          const p = (f: string) => `suspectedMedicines.${i}.${f}` as FieldPath<CaseFormValues>;
+                          const rechallenge = values.suspectedMedicines?.[i]?.rechallenge;
+                          return (
+                            <div key={row.key} className="space-y-4 rounded-lg border p-3 sm:p-4" id={fieldId(base)}>
+                              <div className="flex items-center justify-between">
+                                <h3 className="text-sm font-semibold">Suspected medicine {i + 1}</h3>
+                                <Button type="button" variant="ghost" size="sm" onClick={() => suspected.remove(i)}>
+                                  <Trash2 aria-hidden /> Remove
+                                </Button>
+                              </div>
+                              <TextField
+                                name={p("name")}
+                                label="8. Name (brand or generic)"
+                                required={i === 0}
+                                issues={issues(`${base}.name`)}
+                                issuePath={`${base}.name`}
+                              />
+                              <div className="grid gap-4 sm:grid-cols-3">
+                                <TextField
+                                  name={p("manufacturer")}
+                                  label="Manufacturer"
+                                  unknown={unknownRow("manufacturer")}
+                                  issues={issues(`${base}.manufacturer`)}
+                                  issuePath={`${base}.manufacturer`}
+                                />
+                                <TextField
+                                  name={p("batchLot")}
+                                  label="Batch / lot no."
+                                  unknown={unknownRow("batchLot")}
+                                  issues={issues(`${base}.batchLot`)}
+                                  issuePath={`${base}.batchLot`}
+                                />
+                                <PartialDateField
+                                  name={p("expiryDate")}
+                                  label="Expiry date"
+                                  unknown={unknownRow("expiryDate")}
+                                  issues={issues(`${base}.expiryDate`)}
+                                  issuePath={`${base}.expiryDate`}
+                                />
+                              </div>
+                              <div className="grid gap-4 sm:grid-cols-3">
+                                <TextField
+                                  name={p("dose")}
+                                  label="Dose"
+                                  placeholder="e.g. 500 mg"
+                                  unknown={unknownRow("dose")}
+                                  issues={issues(`${base}.dose`)}
+                                  issuePath={`${base}.dose`}
+                                />
+                                <TextField
+                                  name={p("route")}
+                                  label="Route"
+                                  list="route-options"
+                                  unknown={unknownRow("route")}
+                                  issues={issues(`${base}.route`)}
+                                  issuePath={`${base}.route`}
+                                />
+                                <TextField
+                                  name={p("frequency")}
+                                  label="Frequency"
+                                  list="frequency-options"
+                                  placeholder="e.g. TID"
+                                  unknown={unknownRow("frequency")}
+                                  issues={issues(`${base}.frequency`)}
+                                  issuePath={`${base}.frequency`}
+                                />
+                              </div>
+                              <div className="grid gap-4 sm:grid-cols-2">
+                                <PartialDateField
+                                  name={p("startDate")}
+                                  label="Date started"
+                                  unknown={unknownRow("startDate")}
+                                  issues={issues(`${base}.startDate`)}
+                                  issuePath={`${base}.startDate`}
+                                />
+                                <div className="space-y-2">
+                                  <PartialDateField
+                                    name={p("stopDate")}
+                                    label="Date stopped"
+                                    disabled={values.suspectedMedicines?.[i]?.ongoing}
+                                    unknown={unknownRow("stopDate")}
+                                    issues={issues(`${base}.stopDate`)}
+                                    issuePath={`${base}.stopDate`}
+                                  />
+                                  <label className="flex items-center gap-1.5 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      className="size-4 accent-primary"
+                                      {...form.register(p("ongoing"))}
+                                    />
+                                    Still being taken
+                                  </label>
+                                </div>
+                              </div>
+                              <TextField
+                                name={p("indication")}
+                                label="Indication"
+                                unknown={unknownRow("indication")}
+                                issues={issues(`${base}.indication`)}
+                                issuePath={`${base}.indication`}
+                              />
+                              <div className="grid gap-4 sm:grid-cols-2">
+                                <SelectField
+                                  name={p("actionTaken")}
+                                  label="9. Action taken after the reaction"
+                                  options={options(ACTION_TAKEN_LABELS)}
+                                  issues={issues(`${base}.actionTaken`)}
+                                  issuePath={`${base}.actionTaken`}
+                                />
+                                <SelectField
+                                  name={p("rechallenge")}
+                                  label="10. Was the medicine reintroduced?"
+                                  options={options(RECHALLENGE_LABELS)}
+                                  hint="Record only what happened; never reintroduce a medicine to find out."
+                                  issues={issues(`${base}.rechallenge`)}
+                                  issuePath={`${base}.rechallenge`}
+                                />
+                              </div>
+                              {rechallenge === "YES" ? (
+                                <TextField name={p("rechallengeDose")} label="Dose on reintroduction" />
+                              ) : null}
+                              <p className="text-xs text-muted-foreground">
+                                Causality is assessed at the AMC; this app never fills it.
+                              </p>
+                            </div>
+                          );
+                        })}
                         <Button
                           type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => investigations.remove(i)}
-                          aria-label={`Remove investigation ${i + 1}`}
+                          variant="outline"
+                          onClick={() => suspected.append(emptySuspectedMedicine())}
                         >
-                          <Trash2 aria-hidden />
+                          <Plus aria-hidden /> Add suspected medicine
                         </Button>
-                      </div>
-                      <PartialDateField
-                        className="sm:col-span-3"
-                        name={`investigations.${i}.date`}
-                        label="Date"
-                        unknown={{ listPath: `investigations.${i}.unknownFields`, field: "date" }}
-                        issues={issues(`${base}.date`)}
-                        issuePath={`${base}.date`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </Section>
 
-            <Section
-              id="section-c"
-              title="C. Suspected medication(s)"
-              description="Add each medicine you suspect. Use the full name as written; anything too long for the official box goes on a continuation sheet."
-            >
-              {extractionSlot}
-              {issues("suspectedMedicines") ? (
-                <div className="text-[13px] text-warning">
-                  {issues("suspectedMedicines")
-                    ?.map((x) => x.body)
-                    .join(" ")}
-                </div>
-              ) : null}
-              {suspected.fields.map((row, i) => {
-                const base = `suspectedMedicines.${row.id ?? "new"}`;
-                const unknownRow = (field: string) => ({
-                  listPath: `suspectedMedicines.${i}.unknownFields` as FormPath,
-                  field,
-                });
-                const p = (f: string) => `suspectedMedicines.${i}.${f}` as FieldPath<CaseFormValues>;
-                const rechallenge = values.suspectedMedicines?.[i]?.rechallenge;
-                return (
-                  <div key={row.key} className="space-y-4 rounded-lg border p-3 sm:p-4" id={fieldId(base)}>
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold">Suspected medicine {i + 1}</h3>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => suspected.remove(i)}>
-                        <Trash2 aria-hidden /> Remove
+                        <div className="space-y-3 border-t pt-4" id={fieldId("concomitantProducts")}>
+                          <div>
+                            <h3 className="text-sm font-semibold">11. Concomitant products</h3>
+                            <p className="text-[13px] text-muted-foreground">
+                              Other medicines, self-medication or herbal products. Tick &quot;used to treat the
+                              reaction&quot; for products given because of it; those print under item 7 instead of item
+                              11.
+                            </p>
+                          </div>
+                          {concomitant.fields.map((row, i) => {
+                            const base = `concomitantProducts.${row.id ?? "new"}`;
+                            const unknownRow = (field: string) => ({
+                              listPath: `concomitantProducts.${i}.unknownFields` as FormPath,
+                              field,
+                            });
+                            const p = (f: string) => `concomitantProducts.${i}.${f}` as FieldPath<CaseFormValues>;
+                            return (
+                              <div key={row.key} className="space-y-4 rounded-lg border p-3 sm:p-4">
+                                <div className="flex items-center justify-between">
+                                  <h4 className="text-sm font-semibold">Concomitant product {i + 1}</h4>
+                                  <Button type="button" variant="ghost" size="sm" onClick={() => concomitant.remove(i)}>
+                                    <Trash2 aria-hidden /> Remove
+                                  </Button>
+                                </div>
+                                <TextField
+                                  name={p("name")}
+                                  label="Name (brand or generic)"
+                                  issues={issues(`${base}.name`)}
+                                  issuePath={`${base}.name`}
+                                />
+                                <div className="grid gap-4 sm:grid-cols-3">
+                                  <TextField name={p("dose")} label="Dose" unknown={unknownRow("dose")} />
+                                  <TextField
+                                    name={p("route")}
+                                    label="Route"
+                                    list="route-options"
+                                    unknown={unknownRow("route")}
+                                  />
+                                  <TextField
+                                    name={p("frequency")}
+                                    label="Frequency"
+                                    list="frequency-options"
+                                    unknown={unknownRow("frequency")}
+                                  />
+                                </div>
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                  <PartialDateField
+                                    name={p("startDate")}
+                                    label="Date started"
+                                    unknown={unknownRow("startDate")}
+                                  />
+                                  <div className="space-y-2">
+                                    <PartialDateField
+                                      name={p("stopDate")}
+                                      label="Date stopped"
+                                      disabled={values.concomitantProducts?.[i]?.ongoing}
+                                      unknown={unknownRow("stopDate")}
+                                    />
+                                    <label className="flex items-center gap-1.5 text-sm">
+                                      <input
+                                        type="checkbox"
+                                        className="size-4 accent-primary"
+                                        {...form.register(p("ongoing"))}
+                                      />
+                                      Still being taken
+                                    </label>
+                                  </div>
+                                </div>
+                                <TextField
+                                  name={p("indication")}
+                                  label="Indication"
+                                  unknown={unknownRow("indication")}
+                                />
+                                <label className="flex items-center gap-1.5 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    className="size-4 accent-primary"
+                                    {...form.register(p("usedToTreatReaction"))}
+                                  />
+                                  Used to treat the reaction
+                                </label>
+                              </div>
+                            );
+                          })}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => concomitant.append(emptyConcomitantProduct())}
+                          >
+                            <Plus aria-hidden /> Add concomitant product
+                          </Button>
+                        </div>
+                      </Section>
+
+                      <Section id="section-d" title="D. Reporter details and additional information">
+                        <div className="rounded-lg border bg-secondary/60 p-3 text-sm">
+                          <p className="font-medium">{reporter.name ?? "Name missing"}</p>
+                          <p className="text-muted-foreground">
+                            {[reporter.occupation, reporter.email, reporter.phone].filter(Boolean).join(" · ") ||
+                              "No contact details"}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Section 16 is taken from your profile when you submit.{" "}
+                            <a href="/profile" className="text-primary underline underline-offset-2">
+                              Edit profile
+                            </a>
+                          </p>
+                        </div>
+                        <TextField
+                          name="additionalInformation"
+                          label="Additional information"
+                          multiline
+                          issues={issues("additionalInformation")}
+                        />
+                      </Section>
+                    </>
+                  )}
+
+                  <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:mx-0 lg:rounded-lg lg:border lg:px-4">
+                    <SaveIndicator state={saveState} dirty={dirty} />
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void save()}
+                        disabled={saveState.kind === "saving"}
+                      >
+                        <Save aria-hidden /> Save draft
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void openFile(files.casePdf(caseId), save)}
+                        title="The official PvPI form v1.4 filled with this draft"
+                      >
+                        <FileText aria-hidden /> PvPI PDF
+                      </Button>
+                      <Button type="button" onClick={() => void goToSubmit()} disabled={navigating}>
+                        <Send aria-hidden /> Review and submit
                       </Button>
                     </div>
-                    <TextField
-                      name={p("name")}
-                      label="8. Name (brand or generic)"
-                      required={i === 0}
-                      issues={issues(`${base}.name`)}
-                      issuePath={`${base}.name`}
-                    />
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <TextField
-                        name={p("manufacturer")}
-                        label="Manufacturer"
-                        unknown={unknownRow("manufacturer")}
-                        issues={issues(`${base}.manufacturer`)}
-                        issuePath={`${base}.manufacturer`}
-                      />
-                      <TextField
-                        name={p("batchLot")}
-                        label="Batch / lot no."
-                        unknown={unknownRow("batchLot")}
-                        issues={issues(`${base}.batchLot`)}
-                        issuePath={`${base}.batchLot`}
-                      />
-                      <PartialDateField
-                        name={p("expiryDate")}
-                        label="Expiry date"
-                        unknown={unknownRow("expiryDate")}
-                        issues={issues(`${base}.expiryDate`)}
-                        issuePath={`${base}.expiryDate`}
-                      />
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <TextField
-                        name={p("dose")}
-                        label="Dose"
-                        placeholder="e.g. 500 mg"
-                        unknown={unknownRow("dose")}
-                        issues={issues(`${base}.dose`)}
-                        issuePath={`${base}.dose`}
-                      />
-                      <TextField
-                        name={p("route")}
-                        label="Route"
-                        list="route-options"
-                        unknown={unknownRow("route")}
-                        issues={issues(`${base}.route`)}
-                        issuePath={`${base}.route`}
-                      />
-                      <TextField
-                        name={p("frequency")}
-                        label="Frequency"
-                        list="frequency-options"
-                        placeholder="e.g. TID"
-                        unknown={unknownRow("frequency")}
-                        issues={issues(`${base}.frequency`)}
-                        issuePath={`${base}.frequency`}
-                      />
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <PartialDateField
-                        name={p("startDate")}
-                        label="Date started"
-                        unknown={unknownRow("startDate")}
-                        issues={issues(`${base}.startDate`)}
-                        issuePath={`${base}.startDate`}
-                      />
-                      <div className="space-y-2">
-                        <PartialDateField
-                          name={p("stopDate")}
-                          label="Date stopped"
-                          disabled={values.suspectedMedicines?.[i]?.ongoing}
-                          unknown={unknownRow("stopDate")}
-                          issues={issues(`${base}.stopDate`)}
-                          issuePath={`${base}.stopDate`}
-                        />
-                        <label className="flex items-center gap-1.5 text-sm">
-                          <input type="checkbox" className="size-4 accent-primary" {...form.register(p("ongoing"))} />
-                          Still being taken
-                        </label>
-                      </div>
-                    </div>
-                    <TextField
-                      name={p("indication")}
-                      label="Indication"
-                      unknown={unknownRow("indication")}
-                      issues={issues(`${base}.indication`)}
-                      issuePath={`${base}.indication`}
-                    />
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <SelectField
-                        name={p("actionTaken")}
-                        label="9. Action taken after the reaction"
-                        options={options(ACTION_TAKEN_LABELS)}
-                        issues={issues(`${base}.actionTaken`)}
-                        issuePath={`${base}.actionTaken`}
-                      />
-                      <SelectField
-                        name={p("rechallenge")}
-                        label="10. Was the medicine reintroduced?"
-                        options={options(RECHALLENGE_LABELS)}
-                        hint="Record only what happened; never reintroduce a medicine to find out."
-                        issues={issues(`${base}.rechallenge`)}
-                        issuePath={`${base}.rechallenge`}
-                      />
-                    </div>
-                    {rechallenge === "YES" ? (
-                      <TextField name={p("rechallengeDose")} label="Dose on reintroduction" />
-                    ) : null}
-                    <p className="text-xs text-muted-foreground">
-                      Causality is assessed at the AMC; this app never fills it.
-                    </p>
                   </div>
-                );
-              })}
-              <Button type="button" variant="outline" onClick={() => suspected.append(emptySuspectedMedicine())}>
-                <Plus aria-hidden /> Add suspected medicine
-              </Button>
+                </form>
 
-              <div className="space-y-3 border-t pt-4" id={fieldId("concomitantProducts")}>
-                <div>
-                  <h3 className="text-sm font-semibold">11. Concomitant products</h3>
-                  <p className="text-[13px] text-muted-foreground">
-                    Other medicines, self-medication or herbal products. Tick &quot;used to treat the reaction&quot; for
-                    products given because of it; those print under item 7 instead of item 11.
-                  </p>
-                </div>
-                {concomitant.fields.map((row, i) => {
-                  const base = `concomitantProducts.${row.id ?? "new"}`;
-                  const unknownRow = (field: string) => ({
-                    listPath: `concomitantProducts.${i}.unknownFields` as FormPath,
-                    field,
-                  });
-                  const p = (f: string) => `concomitantProducts.${i}.${f}` as FieldPath<CaseFormValues>;
-                  return (
-                    <div key={row.key} className="space-y-4 rounded-lg border p-3 sm:p-4">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-semibold">Concomitant product {i + 1}</h4>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => concomitant.remove(i)}>
-                          <Trash2 aria-hidden /> Remove
-                        </Button>
-                      </div>
-                      <TextField
-                        name={p("name")}
-                        label="Name (brand or generic)"
-                        issues={issues(`${base}.name`)}
-                        issuePath={`${base}.name`}
-                      />
-                      <div className="grid gap-4 sm:grid-cols-3">
-                        <TextField name={p("dose")} label="Dose" unknown={unknownRow("dose")} />
-                        <TextField name={p("route")} label="Route" list="route-options" unknown={unknownRow("route")} />
-                        <TextField
-                          name={p("frequency")}
-                          label="Frequency"
-                          list="frequency-options"
-                          unknown={unknownRow("frequency")}
-                        />
-                      </div>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <PartialDateField
-                          name={p("startDate")}
-                          label="Date started"
-                          unknown={unknownRow("startDate")}
-                        />
-                        <div className="space-y-2">
-                          <PartialDateField
-                            name={p("stopDate")}
-                            label="Date stopped"
-                            disabled={values.concomitantProducts?.[i]?.ongoing}
-                            unknown={unknownRow("stopDate")}
-                          />
-                          <label className="flex items-center gap-1.5 text-sm">
-                            <input type="checkbox" className="size-4 accent-primary" {...form.register(p("ongoing"))} />
-                            Still being taken
-                          </label>
-                        </div>
-                      </div>
-                      <TextField name={p("indication")} label="Indication" unknown={unknownRow("indication")} />
-                      <label className="flex items-center gap-1.5 text-sm">
-                        <input
-                          type="checkbox"
-                          className="size-4 accent-primary"
-                          {...form.register(p("usedToTreatReaction"))}
-                        />
-                        Used to treat the reaction
-                      </label>
-                    </div>
-                  );
-                })}
-                <Button type="button" variant="outline" onClick={() => concomitant.append(emptyConcomitantProduct())}>
-                  <Plus aria-hidden /> Add concomitant product
-                </Button>
-              </div>
-            </Section>
-
-            <Section id="section-d" title="D. Reporter details and additional information">
-              <div className="rounded-lg border bg-secondary/60 p-3 text-sm">
-                <p className="font-medium">{reporter.name ?? "Name missing"}</p>
-                <p className="text-muted-foreground">
-                  {[reporter.occupation, reporter.email, reporter.phone].filter(Boolean).join(" · ") ||
-                    "No contact details"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Section 16 is taken from your profile when you submit.{" "}
-                  <a href="/profile" className="text-primary underline underline-offset-2">
-                    Edit profile
-                  </a>
-                </p>
-              </div>
-              <TextField
-                name="additionalInformation"
-                label="Additional information"
-                multiline
-                issues={issues("additionalInformation")}
-              />
-            </Section>
-
-            <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:mx-0 lg:rounded-lg lg:border lg:px-4">
-              <SaveIndicator state={saveState} dirty={dirty} />
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void save()}
-                  disabled={saveState.kind === "saving"}
+                <aside
+                  onClick={(event) => {
+                    const anchor = (event.target as HTMLElement).closest('a[href^="#"]');
+                    if (guided && anchor) {
+                      event.preventDefault();
+                      changeMode(false);
+                      const target = anchor.getAttribute("href")!.slice(1);
+                      setTimeout(() => document.getElementById(target)?.scrollIntoView({ behavior: "smooth" }), 50);
+                    }
+                  }}
+                  className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto"
                 >
-                  <Save aria-hidden /> Save draft
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void openFile(files.casePdf(caseId), save)}
-                  title="The official PvPI form v1.4 filled with this draft"
-                >
-                  <FileText aria-hidden /> PvPI PDF
-                </Button>
-                <Button type="button" onClick={() => void goToSubmit()} disabled={navigating}>
-                  <Send aria-hidden /> Review and submit
-                </Button>
+                  <CompletenessPanel completeness={completeness} caseNumber={caseNumber} />
+                  <AiCheckPanel caseId={caseId} ai={ai} />
+                </aside>
               </div>
-            </div>
-          </form>
 
-          <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
-            <CompletenessPanel completeness={completeness} caseNumber={caseNumber} />
-            <AiCheckPanel caseId={caseId} ai={ai} />
-          </aside>
-        </div>
-
-        <Dialog open={escalateOpen} onOpenChange={setEscalateOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Escalate urgently</DialogTitle>
-              <DialogDescription>
-                The designated urgent contacts will be alerted straight away, even though the report is not complete. A
-                copy of what you have entered so far is kept with the alert.
-              </DialogDescription>
-            </DialogHeader>
-            <label htmlFor="escalate-note" className="text-[13px] font-medium">
-              Urgency note
-            </label>
-            <textarea
-              id="escalate-note"
-              rows={4}
-              className={cn(inputClass, "h-auto py-1.5")}
-              placeholder="e.g. Patient admitted to ICU; full details to follow."
-              value={escalateNote}
-              onChange={(e) => setEscalateNote(e.target.value)}
-            />
-            {escalateError ? <p className="text-sm text-destructive">{escalateError}</p> : null}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setEscalateOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="button" variant="destructive" onClick={() => void escalate()}>
-                <Siren aria-hidden /> Escalate now
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </SaveDraftContext>
+              <Dialog open={escalateOpen} onOpenChange={setEscalateOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Escalate urgently</DialogTitle>
+                    <DialogDescription>
+                      The designated urgent contacts will be alerted straight away, even though the report is not
+                      complete. A copy of what you have entered so far is kept with the alert.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <label htmlFor="escalate-note" className="text-[13px] font-medium">
+                    Urgency note
+                  </label>
+                  <textarea
+                    id="escalate-note"
+                    rows={4}
+                    className={cn(inputClass, "h-auto py-1.5")}
+                    placeholder="e.g. Patient admitted to ICU; full details to follow."
+                    value={escalateNote}
+                    onChange={(e) => setEscalateNote(e.target.value)}
+                  />
+                  {escalateError ? <p className="text-sm text-destructive">{escalateError}</p> : null}
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setEscalateOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="button" variant="destructive" onClick={() => void escalate()}>
+                      <Siren aria-hidden /> Escalate now
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </fieldset>
+          </SaveDraftContext>
+        </ServerChangeContext>
+      </DraftVersionContext>
     </FormProvider>
   );
 }

@@ -5,7 +5,9 @@ import type { CaseFormValues } from "@/lib/domain/case-form";
 import type { SaveResult } from "@/server/workflow/cases";
 import type { ExtractionView } from "@/server/workflow/extraction";
 import type { ConsistencyResult, NarrativeDraft } from "@/server/workflow/ai-assist";
-import { ApiError, apiSend } from "./client";
+import type { AiHistory, FindingDecision } from "@/lib/domain/ai-history";
+import type { GuidedSuggestions } from "@/server/workflow/guided";
+import { ApiError, apiGet, apiSend } from "./client";
 
 async function result<T>(call: Promise<T>): Promise<ActionResult<T>> {
   try {
@@ -43,6 +45,11 @@ export const actions = {
     result(apiSend<UploadedDocumentView>("POST", `/cases/${id(caseId)}/documents`, form)),
   runExtraction: (caseId: string, documentId: string) =>
     post<ExtractionView>(`/cases/${id(caseId)}/documents/${id(documentId)}/extract`),
+  pendingExtractions: (caseId: string) =>
+    result(apiGet<{ id: string; document: { originalName: string } }[]>(`/cases/${id(caseId)}/extractions`)),
+  extraction: (caseId: string, runId: string) =>
+    result(apiGet<ExtractionView>(`/cases/${id(caseId)}/extractions/${id(runId)}`)),
+  discardExtraction: (caseId: string, runId: string) => post(`/cases/${id(caseId)}/extractions/${id(runId)}/discard`),
   applyExtraction: (caseId: string, runId: string, input: unknown) =>
     post<{ added: number; filled: number; investigationsAdded: number }>(
       `/cases/${id(caseId)}/extractions/${id(runId)}/apply`,
@@ -50,11 +57,18 @@ export const actions = {
     ),
   draftNarrative: (caseId: string, notes: string, useReport: boolean) =>
     post<NarrativeDraft>(`/cases/${id(caseId)}/narrative`, { notes, useReport }),
-  useNarrative: (caseId: string, draftId: string, text: string) =>
-    post<null>(`/cases/${id(caseId)}/narrative/${id(draftId)}/use`, { text }),
+  aiHistory: (caseId: string) => result(apiGet<AiHistory>(`/cases/${id(caseId)}/ai-history`)),
+  guidedFollowups: (caseId: string) => post<GuidedSuggestions>(`/cases/${id(caseId)}/guided/followups`),
+  saveGuidedStep: (caseId: string, stepId: string) => post(`/cases/${id(caseId)}/guided/step`, { stepId }),
+  discardNarrative: (caseId: string, draftId: string) => post(`/cases/${id(caseId)}/narrative/${id(draftId)}/discard`),
+  useNarrative: (
+    caseId: string,
+    draftId: string,
+    input: { text: string; mode: "replace" | "append"; lockVersion: number; verified: boolean },
+  ) => post<{ lockVersion: number }>(`/cases/${id(caseId)}/narrative/${id(draftId)}/use`, input),
   checkWithAi: (caseId: string) => post<ConsistencyResult>(`/cases/${id(caseId)}/ai-check`),
-  keepFinding: (caseId: string, checkId: string, index: number, reason: string) =>
-    post<null>(`/cases/${id(caseId)}/ai-check/${id(checkId)}/keep`, { index, reason }),
+  keepFinding: (caseId: string, checkId: string, index: number, reason: string, decision: FindingDecision = "KEPT") =>
+    post<null>(`/cases/${id(caseId)}/ai-check/${id(checkId)}/keep`, { index, reason, decision }),
 
   claim: (caseId: string) => post(`/cases/${id(caseId)}/claim`),
   resume: (caseId: string) => post(`/cases/${id(caseId)}/resume`),

@@ -34,6 +34,8 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${SITE_PORT}`,
     trace: "retain-on-failure",
+    // Optional existing Chromium executable, useful when the matching download is unavailable.
+    launchOptions: process.env.TEST_BROWSER_EXECUTABLE ? { executablePath: process.env.TEST_BROWSER_EXECUTABLE } : {},
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
@@ -47,7 +49,7 @@ export default defineConfig({
       env: apiEnv,
     },
     {
-      command: `npm run build && node scripts/serve-static.mjs out ${SITE_PORT}`,
+      command: `${process.env.E2E_USE_EXISTING_BUILD === "true" ? "" : "npm run build && "}node scripts/serve-static.mjs out ${SITE_PORT}`,
       url: `http://localhost:${SITE_PORT}/login`,
       reuseExistingServer: false,
       timeout: 300_000,

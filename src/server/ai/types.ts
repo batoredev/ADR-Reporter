@@ -4,7 +4,7 @@ import type { z } from "zod";
 export type DocumentMimeType = "image/png" | "image/jpeg" | "application/pdf";
 
 /** Which job a request is for. Recorded with each run; the test provider answers by task. */
-export type AiTask = "extract-document" | "narrative" | "consistency";
+export type AiTask = "extract-document" | "narrative" | "consistency" | "guided";
 
 export interface GenerateRequest<T> {
   task: AiTask;
@@ -17,6 +17,8 @@ export interface GenerateRequest<T> {
   /** The reply must be JSON matching this schema; anything else is rejected. */
   schema: z.ZodType<T>;
   maxOutputTokens?: number;
+  /** Task-specific semantic checks; throwing rejects a reply and tries the next provider. */
+  validateOutput?: (output: T) => void;
   /** Aborts the attempt; the router moves on to the next provider. */
   signal?: AbortSignal;
 }

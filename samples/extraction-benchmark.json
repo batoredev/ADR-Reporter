@@ -1,0 +1,147 @@
+{
+  "cases": [
+    {
+      "id": "clean-prescription",
+      "file": "samples/prescriptions/fictional-prescription-clean.png",
+      "mimeType": "image/png",
+      "checks": {
+        "documentType": "PRESCRIPTION",
+        "patient.initials.value": "R.K.",
+        "patient.age.value": "34",
+        "patient.gender.value": "FEMALE",
+        "patient.weightKg.value": null,
+        "reaction.terms.value": null,
+        "reaction.startDate.value": null,
+        "medications.length": 2,
+        "investigations.length": 0
+      },
+      "medicines": [
+        {
+          "namePattern": "\\bamoxicillin\\b.*500\\s*mg",
+          "checks": {
+            "dose.value": "1 cap",
+            "frequency.value": "TID",
+            "startDate.value": null,
+            "stopDate.value": null,
+            "manufacturer.value": null,
+            "batchLot.value": null,
+            "expiryDate.value": null
+          }
+        },
+        {
+          "namePattern": "\\bparacetamol\\b.*500\\s*mg",
+          "checks": {
+            "dose.value": "1 tab",
+            "frequency.value": "SOS",
+            "startDate.value": null,
+            "stopDate.value": null,
+            "manufacturer.value": null,
+            "batchLot.value": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "scanned-prescription",
+      "file": "samples/prescriptions/fictional-prescription-scan.jpg",
+      "mimeType": "image/jpeg",
+      "checks": {
+        "documentType": "PRESCRIPTION",
+        "patient.initials.value": "A.M.",
+        "patient.age.value": "52",
+        "patient.gender.value": "MALE",
+        "medications.length": 2,
+        "investigations.length": 0,
+        "reaction.terms.value": null,
+        "reaction.startDate.value": null
+      },
+      "medicines": [
+        {
+          "namePattern": "\\bmetformin\\b.*500\\s*mg",
+          "checks": {
+            "dose.value": "1 tab",
+            "startDate.value": null,
+            "stopDate.value": null,
+            "route.value": null,
+            "manufacturer.value": null,
+            "batchLot.value": null
+          },
+          "patterns": {
+            "frequency.value": "\\bBD\\b"
+          }
+        },
+        {
+          "namePattern": "\\batorvastatin\\b.*20\\s*mg",
+          "checks": {
+            "dose.value": "1 tab",
+            "frequency.value": "HS",
+            "startDate.value": null,
+            "stopDate.value": null,
+            "route.value": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "lab-report",
+      "file": "samples/documents/fictional-lab-report.pdf",
+      "mimeType": "application/pdf",
+      "checks": {
+        "documentType": "LAB_REPORT",
+        "patient.age.value": "34",
+        "medications.length": 0,
+        "investigations.length": 2,
+        "reaction.terms.value": null,
+        "reaction.startDate.value": null
+      },
+      "tests": [
+        {
+          "namePattern": "creatinine",
+          "checks": {
+            "date.value": "2026-10",
+            "date.approximate": true
+          },
+          "resultPattern": "2\\.1\\s*mg/dL"
+        },
+        {
+          "namePattern": "ALT",
+          "checks": {
+            "date.value": "2026-10",
+            "date.approximate": true
+          },
+          "resultPattern": "82\\s*U/L"
+        }
+      ]
+    },
+    {
+      "id": "discharge-summary",
+      "file": "samples/documents/fictional-discharge-summary.pdf",
+      "mimeType": "application/pdf",
+      "checks": {
+        "documentType": "DISCHARGE_SUMMARY",
+        "patient.initials.value": "R.K.",
+        "reaction.startDate.value": "2026-10-14",
+        "reaction.stopDate.value": null,
+        "medications.length": 2
+      },
+      "medicines": [
+        {
+          "namePattern": "\\bamoxicillin\\b.*500\\s*mg",
+          "checks": {
+            "startDate.value": "2026-10-12",
+            "stopDate.value": "2026-10-15",
+            "manufacturer.value": null,
+            "batchLot.value": null
+          }
+        },
+        {
+          "namePattern": "\\bcetirizine\\b",
+          "checks": {
+            "startDate.value": "2026-10-15",
+            "stopDate.value": null
+          }
+        }
+      ]
+    }
+  ]
+}

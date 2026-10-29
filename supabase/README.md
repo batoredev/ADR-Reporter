@@ -47,7 +47,7 @@ README. Everything in the demo data is fictional.
 ## The Edge Function `api`
 
 `functions/api/index.ts` is the whole server of the app: sign-in, reports, review, escalation, submissions, PDFs and
-AI extraction. It is one generated file (`npm run build:api` builds it from `src/server`). Deploy it in the dashboard
+all AI workflows. It is one generated file (`npm run build:api` builds it from `src/server`). Deploy it in the dashboard
 under **Edge Functions → Deploy a new function → Via Editor**: name it `api`, paste the file, deploy, then **turn off
 JWT verification** for it, because the app signs users in with its own tokens. It connects to this project's database
 automatically (`SUPABASE_DB_URL`), so it needs no database secret.
@@ -79,3 +79,16 @@ files 001-003 here are the same SQL. For a new Prisma migration:
 
 The files were checked by applying them to an empty PostgreSQL database: Prisma reported the schema up to date with no
 drift from `prisma/schema.prisma`, the API roles were refused access, and the app's database tests passed against it.
+
+## AI setup and updates
+
+This AI update uses existing case, extraction, provenance and append-only audit tables; no extra database migration is
+needed. Set `AI_PROVIDER=auto`, `OLLAMA_API_KEY` and/or `GEMINI_API_KEY` under Edge Functions → Secrets. Keep all
+provider keys out of `NEXT_PUBLIC_*` variables. Run `npm run build:api`, deploy `functions/api/index.ts`, and redeploy
+the Cloudflare site for the new screens. The website and API must be updated together.
+
+Paid Claude is blocked by `ALLOW_PAID_AI = false` in `src/server/ai/config.ts`, even if its secret is present. Change
+the code to `true`, add `ANTHROPIC_API_KEY`, rebuild and redeploy only when paid fallback is wanted. Ollama/Gemini
+account quotas and billing settings remain controlled in their own consoles.
+
+See [the AI implementation guide](../docs/AI_IMPLEMENTATION.md) for testing and remaining live setup.

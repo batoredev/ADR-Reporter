@@ -5,14 +5,11 @@ import type { AiAttempt, AiStatus } from "@/server/ai/provider";
 export function AiChain({ ai }: { ai: AiStatus }) {
   if (!ai.available) return <>AI unavailable: enter details manually. ({ai.reason})</>;
   if (ai.provider === "fixture") return <>Test mode: saved example data, no AI service</>;
-  const free = ai.chain.filter((c) => c.tier === "free").map((c) => c.model);
-  const paid = ai.chain.filter((c) => c.tier === "paid").map((c) => c.model);
   return (
     <>
       <Sparkles className="mr-1 inline size-3 text-ai" aria-hidden />
-      {free.length ? `Free first: ${free.join(", ")}` : null}
-      {free.length && paid.length ? " · then " : null}
-      {paid.length ? `paid: ${paid.join(", ")}` : null}
+      Try in order: {ai.chain.map((c) => `${c.provider} / ${c.model}${c.tier === "paid" ? " (paid)" : ""}`).join(" → ")}
+      .{ai.paidEnabled ? " Paid fallback enabled." : " Paid Claude disabled."}
     </>
   );
 }

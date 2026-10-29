@@ -22,6 +22,7 @@ export interface ProvenanceView {
   caseId: string;
   verifiedBy: string | null;
   model: string | null;
+  uncertainReading?: boolean;
 }
 
 interface CaseSummaryProps {
@@ -88,6 +89,7 @@ function Row({
               From {source.documentName}
               {source.model ? ` · AI-suggested (${source.model})` : ""}
               {source.verifiedBy ? ` · verified by ${source.verifiedBy}` : ""}
+              {source.uncertainReading ? " · unclear reading checked by reporter" : ""}
             </FileLink>
           ) : null}
           {issues ? (
@@ -148,20 +150,25 @@ export function CaseSummary({ snapshot: s, changed, provenance, issueCounts }: C
         <Row ctx={ctx} label="7. Management" path="reactionManagement">
           {value(s.reaction.management, false)}
         </Row>
-        <Row ctx={ctx} label="12. Investigations" path="investigations">
-          {s.investigations.length
-            ? s.investigations.map((i) => (
-                <span key={i.id} className="block" data-path={`investigations.${i.id}.result`}>
-                  {i.testName ?? "Test"}: {i.result ?? "no result"}
-                  {i.date
-                    ? ` (${formatForDisplay(i.date, i.dateApprox)})`
-                    : i.unknownFields?.includes("date")
-                      ? " (date unknown)"
-                      : ""}
-                </span>
-              ))
-            : notEntered}
-        </Row>
+        {s.investigations.length ? (
+          s.investigations.map((i, n) => (
+            <div key={i.id} className="border-t">
+              <Row ctx={ctx} label={`12. Test ${n + 1}`} path={`investigations.${i.id}.testName`}>
+                {value(i.testName, false)}
+              </Row>
+              <Row ctx={ctx} label="Result" path={`investigations.${i.id}.result`}>
+                {value(i.result, false)}
+              </Row>
+              <Row ctx={ctx} label="Date" path={`investigations.${i.id}.date`}>
+                {dateValue(i.date, i.dateApprox, i.unknownFields?.includes("date") ?? false)}
+              </Row>
+            </div>
+          ))
+        ) : (
+          <Row ctx={ctx} label="12. Investigations" path="investigations">
+            {notEntered}
+          </Row>
+        )}
         <Row ctx={ctx} label="13. History" path="medicalHistory">
           {u.has("medicalHistory") ? (
             unknownText

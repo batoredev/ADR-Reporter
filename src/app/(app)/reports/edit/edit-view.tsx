@@ -15,7 +15,8 @@ import type { EditView } from "@/server/api/views";
 
 export function EditReportView() {
   const router = useRouter();
-  const id = useSearchParams().get("id") ?? "";
+  const params = useSearchParams();
+  const id = params.get("id") ?? "";
   const state = useApi<EditView>(id ? `/cases/${encodeURIComponent(id)}/edit` : null);
   const notEditable = state.data?.editable === false;
 
@@ -24,6 +25,7 @@ export function EditReportView() {
   }, [notEditable, id, router]);
 
   if (!id) return <PageError error={new ApiError("No report was chosen.", 404)} />;
+  if (state.error) return <PageError error={state.error} retry={state.reload} />;
   return (
     <Loaded state={state}>
       {(d) => {
@@ -63,6 +65,7 @@ export function EditReportView() {
 
             <CaseForm
               key={d.lockVersion}
+              initialGuided={params.get("mode") === "guided"}
               caseId={id}
               caseNumber={d.caseNumber}
               initialValues={d.values}

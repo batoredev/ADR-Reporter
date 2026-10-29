@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# Local agent runtime state
+/.claude-flow/
+
 # next.js
 /.next/
 /out/

@@ -18,11 +18,9 @@ interface OllamaReply {
  * OLLAMA_API_KEY) or any Ollama server the Edge Function can reach. A
  * function in the cloud cannot reach Ollama on someone's own computer.
  *
- * Learned from running it live in OurGlass:
- * - `format` only constrains decoding; the model never sees the schema, so it
- *   is also written into the instructions.
- * - Thinking is turned off: thinking tokens share the output budget and a
- *   fixed schema needs none.
+ * Local servers use schema-constrained output. Cloud requests include the
+ * schema in the prompt and are validated after generation because Ollama Cloud
+ * does not support the format parameter. Invalid replies fall back safely.
  * Ollama reads images, not PDF files; the router skips it for PDFs.
  */
 export function createOllamaProvider(config: {
@@ -33,6 +31,7 @@ export function createOllamaProvider(config: {
 }): AiProvider {
   const doFetch = config.fetchImpl ?? fetch;
   const baseUrl = config.baseUrl.replace(/\/+$/, "");
+  const cloud = new URL(baseUrl).hostname === "ollama.com" || /:.*cloud$/.test(config.model);
   return {
     name: "ollama",
     model: config.model,
@@ -54,7 +53,9 @@ export function createOllamaProvider(config: {
             model: config.model,
             stream: false,
             think: false,
-            format: jsonSchema,
+            // Cloud does not support constrained structured outputs. Supply the
+            // schema in the prompt and validate locally; invalid JSON falls back.
+            ...(!cloud ? { format: jsonSchema } : {}),
             options: { temperature: 0, num_predict: maxOutputTokens ?? 8192 },
             messages: [
               {
@@ -73,7 +74,7 @@ export function createOllamaProvider(config: {
       if (!response.ok) {
         const status = response.status;
         if (status === 401 || status === 403) throw new AiError("Ollama rejected the API key (OLLAMA_API_KEY).");
-        if (status === 429) throw new AiError("Ollama's free usage limit is reached for now.");
+        if (status === 429) throw new AiError("Ollama's usage limit is reached for now.");
         if (status === 404) throw new AiError(`The Ollama model "${config.model}" was not found.`);
         throw new AiError(`Ollama returned an error (${status}).`);
       }

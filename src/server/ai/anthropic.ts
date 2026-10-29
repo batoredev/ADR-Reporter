@@ -2,28 +2,25 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { toBase64 } from "./json-schema";
+import { ALLOW_PAID_AI } from "./config";
 import { AiError, type AiProvider } from "./types";
-
-/** Models that take the server-side refusal fallback in its "default" form. */
-const SERVER_FALLBACK_MODELS = new Set(["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"]);
 
 type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Anthropic Claude: the paid last resort after the free providers. Structured
- * output is validated against the same Zod schema. On models that support it,
- * a declined request is retried server-side on another Claude model
- * (`fallbacks: "default"`).
+ * output is validated against the same Zod schema. Only the configured model
+ * is called; the code policy must explicitly permit paid usage.
  */
 export function createAnthropicProvider(config: { apiKey: string; model: string; effort?: string }): AiProvider {
-  const client = new Anthropic({ apiKey: config.apiKey, timeout: 120_000, maxRetries: 1 });
-  const serverFallback = SERVER_FALLBACK_MODELS.has(config.model);
+  const client = new Anthropic({ apiKey: config.apiKey, timeout: 120_000, maxRetries: 0 });
   return {
     name: "anthropic",
     model: config.model,
     tier: "paid",
     canRead: () => true,
     async generate({ system, prompt, document, schema, maxOutputTokens, signal }) {
+      if (!ALLOW_PAID_AI) throw new AiError("Paid AI is disabled in src/server/ai/config.ts.");
       const content: Anthropic.Beta.BetaContentBlockParam[] = [];
       if (document) {
         const data = toBase64(document.bytes);
@@ -45,7 +42,6 @@ export function createAnthropicProvider(config: { apiKey: string; model: string;
               format: betaZodOutputFormat(schema),
               ...(config.effort ? { effort: config.effort as Effort } : {}),
             },
-            ...(serverFallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
           },
           { signal },
         );

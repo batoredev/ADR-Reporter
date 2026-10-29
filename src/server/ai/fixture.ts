@@ -4,13 +4,20 @@ import type { ConsistencyOutput } from "@/lib/domain/ai-checks";
 import type { NarrativeOutput } from "@/lib/domain/narrative";
 import { AiError, type AiProvider, type AiTask } from "./types";
 
-const none = { sourceText: null, value: null, uncertain: false };
-const read = (value: string, sourceText: string, uncertain = false) => ({ value, sourceText, uncertain });
+const none = { sourceText: null, value: null, uncertain: false, approximate: false };
+const read = (value: string, sourceText: string, uncertain = false) => ({
+  value,
+  sourceText,
+  uncertain,
+  approximate: false,
+});
 
 /** Saved replies for the fictional samples, so automated tests never call an AI service. */
-const SAVED: Record<AiTask, DocumentExtraction | NarrativeOutput | ConsistencyOutput> = {
+const SAVED: Record<AiTask, DocumentExtraction | NarrativeOutput | ConsistencyOutput | { stepIds: string[] }> = {
+  guided: { stepIds: ["reaction", "seriousness"] },
   "extract-document": {
     documentType: "PRESCRIPTION",
+    readability: "CLEAR",
     patient: {
       initials: read("R.K.", "Pt: R.K."),
       age: read("34", "34 y"),
@@ -24,10 +31,11 @@ const SAVED: Record<AiTask, DocumentExtraction | NarrativeOutput | ConsistencyOu
     medications: [
       {
         name: read("Amoxicillin 500 mg capsule", "Cap. Amoxicillin 500 mg"),
-        dose: read("500 mg", "1 cap"),
+        dose: read("1 cap", "1 cap"),
         route: read("Oral", "oral"),
         frequency: read("TID", "TID x 5 days"),
-        startDate: read("2026-10-12", "Date: 12/10/2026"),
+        startDate: none,
+        stopDate: none,
         duration: read("5 days", "x 5 days"),
         indication: read("Acute sinusitis", "Dx: Acute sinusitis"),
         manufacturer: none,
@@ -36,10 +44,11 @@ const SAVED: Record<AiTask, DocumentExtraction | NarrativeOutput | ConsistencyOu
       },
       {
         name: read("Paracetamol 500 mg tablet", "Tab. Paracetamol 500 mg"),
-        dose: read("500 mg", "1 tab"),
+        dose: read("1 tab", "1 tab"),
         route: read("Oral", "oral"),
         frequency: read("SOS", "SOS for fever", true),
-        startDate: read("2026-10-12", "Date: 12/10/2026"),
+        startDate: none,
+        stopDate: none,
         duration: none,
         indication: read("Fever", "for fever"),
         manufacturer: none,

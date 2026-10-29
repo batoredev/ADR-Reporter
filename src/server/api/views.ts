@@ -124,6 +124,7 @@ export async function submitView(user: CurrentUser, caseId: string) {
     lockVersion: d.c.lockVersion,
     resubmission: d.c.status === "RETURNED",
     check: assessCompleteness(toFormValues(d.c), d.reporter),
+    aiEvents: d.timeline.filter((e) => e.action.startsWith("AI_")),
     preview: {
       ...d.live,
       reporter: {

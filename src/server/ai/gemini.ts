@@ -44,9 +44,6 @@ export function createGeminiProvider(config: { apiKey: string; model: string; fe
               responseMimeType: "application/json",
               responseJsonSchema: replyJsonSchema(schema),
               maxOutputTokens: maxOutputTokens ?? 8192,
-              // Thinking tokens come out of the same output budget; a fixed
-              // schema needs none, and with it on the reply can run out of room.
-              thinkingConfig: { thinkingBudget: 0 },
             },
           }),
           signal,
@@ -57,7 +54,7 @@ export function createGeminiProvider(config: { apiKey: string; model: string; fe
       const reply = (await response.json().catch(() => ({}))) as GeminiReply;
       if (!response.ok) {
         const status = response.status;
-        if (status === 429) throw new AiError("Gemini's free quota is used up for now.");
+        if (status === 429) throw new AiError("Gemini's quota is used up for now.");
         if (status === 503 || status === 500) throw new AiError("Gemini is busy at the moment.");
         if (status === 401 || status === 403) throw new AiError("Gemini rejected the API key (GEMINI_API_KEY).");
         if (status === 404) throw new AiError(`The Gemini model "${config.model}" is not available.`);

@@ -1,5 +1,10 @@
 # ADR Reporter: Prototype Plan
 
+> Current implementation (29 October 2026): see [AI_IMPLEMENTATION.md](AI_IMPLEMENTATION.md) for the AI architecture,
+> completed workflows and live-setup checklist. The original revision below is historical: guided reporting,
+> narratives and consistency checks have now been implemented. Deployment is a static Next.js site on Cloudflare
+> Pages plus a Supabase Edge Function API, rather than the earlier Workers proposal.
+
 **Status:**
 - Plan approved with changes (revision 2, 22/10/2026).
 - Each build step starts only after explicit approval, and stops for review when done.
@@ -51,8 +56,6 @@
 - Email/SMS notifications. In-app alerts *are* included for escalations.
 - On-hold status
 - Formal second-opinion workflow
-- Guided (question-based) reporting
-- AI narratives and AI consistency checks
 - Admin user-management screens (demo accounts come from a seed script)
 - A full version-comparison screen. Versions are stored, and resubmitted changes are highlighted.
 

@@ -6,7 +6,8 @@ AI-assisted adverse drug reaction (ADR) reporting and institutional verification
 > **Academic proof of concept. Fictional data only.** Every account, patient and case in this app is invented.
 > Do not enter real patient information.
 
-- Plan and architecture: [`docs/ARCHITECTURE_PLAN.md`](docs/ARCHITECTURE_PLAN.md)
+- Current AI architecture and execution status: [`docs/AI_IMPLEMENTATION.md`](docs/AI_IMPLEMENTATION.md)
+- Original plan: [`docs/ARCHITECTURE_PLAN.md`](docs/ARCHITECTURE_PLAN.md)
 - Official form and its verified field map: [`docs/reference/`](docs/reference/)
 
 ## Build status
@@ -15,7 +16,7 @@ AI-assisted adverse drug reaction (ADR) reporting and institutional verification
 | ------------------------------- | -------------------------------------------------------------------------------------------- | -------- |
 | 1. Foundation                   | Setup, design style, database, fictional demo data, login, role-based navigation, dashboard  | **Done** |
 | 2. Structured reporting         | PvPI form sections A–D, drafts, validation, submission                                       | **Done** |
-| 3. AI prescription demo         | Upload, extraction, verification, field population                                           | **Done** |
+| 3. AI assistance                | Guided reporting, document extraction, narratives, consistency checks                        | **Done** |
 | 4. Review workflow + escalation | Shared queue, claim/release/reassign, checklist, comments, approve/return, urgent escalation | **Done** |
 | 5. PDF + external tracking      | Filled official PvPI form, external submission records                                       | **Done** |
 | 6. End-to-end check             | Unit, database and browser test suites                                                       | **Done** |
@@ -25,10 +26,11 @@ AI-assisted adverse drug reaction (ADR) reporting and institutional verification
 1. **Report.** A reporter fills the PvPI form sections A–D. Drafts save automatically. Dates can be exact, month and
    year, year only, or approximate, and the official form never gets a made-up day. Fields that are genuinely unknown
    can be marked "Unknown". A completeness panel lists the mandatory fields that are still missing.
-2. **AI help with prescriptions.** Upload a photo or PDF of a prescription and select **Extract medicines**. Each
-   suggested value shows the text it was read from. Unclear values must be confirmed by a person before they are used.
-   Nothing is added until the reporter checks it. Values that came from a document keep a link to it, so reviewers can
-   see where they came from.
+2. **AI assistance.** Choose guided questions or the structured form; both save the same answers. Upload fictional
+   prescriptions, lab reports, discharge summaries or notes and select **Read with AI**. Verify each suggested value
+   and its source text before applying it. Rough notes can become an editable narrative for item 7. **Check with AI**
+   suggests contradictions and gaps, and saves your decisions for the reviewer. Draft narratives and extraction
+   suggestions can be reopened after reload. AI does not determine causality or make submission decisions.
 3. **Urgent escalation.** A potentially serious report can be escalated at any time, even as an incomplete draft. The
    designated urgent contacts are alerted without waiting for review. They acknowledge it, record any urgent
    notification made outside the app, and close it.
@@ -80,18 +82,40 @@ npm run dev                 # terminal 2: the website
 
 Open <http://localhost:3000>.
 
-### AI prescription extraction (optional)
+### AI features
 
-Set the provider in `.env`:
+Set these **backend-only** values in `.env` for the local API, or Supabase Edge Function secrets for deployment:
 
-| `AI_PROVIDER` | What happens                                                                                         |
-| ------------- | ---------------------------------------------------------------------------------------------------- |
-| `none`        | AI extraction shows as unavailable (default). Everything else works.                                 |
-| `anthropic`   | Uses Claude. Put your key in `AI_API_KEY`. `AI_MODEL` chooses the model (default `claude-opus-5-5`). |
-| `fixture`     | Returns saved results for the clean sample prescription. No key or network needed; used by tests.    |
+```dotenv
+AI_PROVIDER=auto
+OLLAMA_API_KEY=your_ollama_key
+GEMINI_API_KEY=your_gemini_key
+```
 
-Fictional prescriptions to try are in [`samples/prescriptions/`](samples/prescriptions/). One is clean and one is a
-blurred, rotated scan. Never upload real prescriptions.
+The default order is **Ollama Cloud → Gemini → Claude (only if enabled)**. Missing keys are skipped. The free-provider
+models are configurable with `OLLAMA_MODEL` and `GEMINI_MODEL`; see `.env.example` for defaults.
+
+Paid Claude is disabled by this code statement in [`src/server/ai/config.ts`](src/server/ai/config.ts):
+
+```ts
+export const ALLOW_PAID_AI: boolean = false;
+```
+
+Change it to `true`, set `ANTHROPIC_API_KEY`, rebuild the API and redeploy to allow Claude after the preferred providers
+fail. An environment variable cannot bypass this switch. Use Ollama/Gemini accounts without paid billing to stay
+within their free tiers; the application cannot change provider account billing or quota.
+
+`AI_PROVIDER=none` disables AI. `AI_PROVIDER=fixture` uses visibly labelled saved test replies for all four tasks,
+without a key or network. Fixed guided questions and manual reporting work even when AI is unavailable.
+
+```bash
+npm run ai:check             # checks all four tasks using the configured provider chain; fictional inputs only
+npm run ai:evaluate          # compares live extractor results against known sample facts; requires real provider keys
+```
+
+Fictional samples are in [`samples/`](samples/). PDF extraction skips Ollama and uses a configured provider that reads
+PDFs (Gemini or enabled Claude). For Ollama-only use, upload JPG/PNG. Live AI setup, limitations and deployment steps
+are in [`docs/AI_IMPLEMENTATION.md`](docs/AI_IMPLEMENTATION.md).
 
 If you used a different database user, password or port, edit `DATABASE_URL` and `TEST_DATABASE_URL` in `.env` first.
 
@@ -173,7 +197,7 @@ How the deployed app is put together:
 
 - **Website:** static files on **Cloudflare Pages**. The free plan is enough. Every page loads its data from the API.
 - **API:** one **Supabase Edge Function** named `api` (`supabase/functions/api/index.ts`). It holds all the server logic:
-  sign-in, reports, review, escalation, submissions, PDFs and AI extraction.
+  sign-in, reports, review, escalation, submissions, PDFs and all AI workflows.
 - **Database:** Supabase PostgreSQL. The tables and demo data come from `supabase/migrations/`.
 
 No passwords or keys go into GitHub. The Edge Function gets its database connection from Supabase automatically. The
@@ -187,7 +211,8 @@ only setting in the repository is the public API address in `.env.production`.
    editor's code with the whole of `supabase/functions/api/index.ts`, and deploy.
 3. **Turn off JWT verification** for `api`, in the function's settings. The app signs users in with its own tokens.
 4. **Optional:** add secrets under **Edge Functions → Secrets**:
-   - `AI_PROVIDER` = `anthropic` and `AI_API_KEY`, for real AI extraction;
+   - `AI_PROVIDER` = `auto`, `OLLAMA_API_KEY` and/or `GEMINI_API_KEY`, for live AI;
+   - `ANTHROPIC_API_KEY` only if you explicitly enable the paid code switch and redeploy;
    - `DEMO_MODE` = `false`, to hide the demo accounts;
    - `FORM_TEMPLATE_URL`, if the website is not at `https://adr-reporter.pages.dev`.
 

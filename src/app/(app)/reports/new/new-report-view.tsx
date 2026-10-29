@@ -22,7 +22,7 @@ export function NewReportView() {
   const [error, setError] = useState<string | null>(null);
   if (!allowed) return null;
 
-  async function start() {
+  async function start(guided = false) {
     setPending(true);
     setError(null);
     const result = await actions.createDraft();
@@ -31,7 +31,7 @@ export function NewReportView() {
       setPending(false);
       return;
     }
-    router.push(pages.caseEdit(result.data.id));
+    router.push(`${pages.caseEdit(result.data.id)}${guided ? "&mode=guided" : ""}`);
   }
 
   return (
@@ -60,14 +60,15 @@ export function NewReportView() {
             ) : null}
           </div>
         </div>
-        <div className="flex flex-col rounded-lg border border-dashed bg-secondary p-5">
+        <div className="flex flex-col rounded-lg border bg-card p-5">
           <MessagesSquare className="size-6 text-muted-foreground" aria-hidden />
-          <h2 className="mt-3 text-base font-semibold text-muted-foreground">Guided reporting</h2>
+          <h2 className="mt-3 text-base font-semibold">Guided reporting</h2>
           <p className="mt-1 flex-1 text-[13px] text-muted-foreground">
-            Step-by-step questions in plain language. Not part of this prototype.
+            Answer a few questions at a time, with suggested follow-ups. Switch to the structured form at any time
+            without losing answers.
           </p>
-          <Button className="mt-4 self-start" variant="outline" disabled>
-            Not available
+          <Button className="mt-4 self-start" variant="outline" disabled={pending} onClick={() => void start(true)}>
+            Start a guided report
           </Button>
         </div>
       </div>

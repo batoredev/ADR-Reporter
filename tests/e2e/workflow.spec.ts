@@ -50,16 +50,20 @@ test("a report goes from AI-assisted entry through review, approval and external
     await reporter.getByLabel("Reaction term(s)").fill("Maculopapular rash");
     await reporter.locator("#field-reactionStartDate").fill("2026-10-20");
 
-    await reporter
-      .getByLabel("Prescription file")
-      .setInputFiles("samples/prescriptions/fictional-prescription-clean.png");
+    await reporter.getByLabel("Document file").setInputFiles("samples/prescriptions/fictional-prescription-clean.png");
     await reporter.getByRole("button", { name: "Upload" }).click();
-    await reporter.getByRole("button", { name: "Extract medicines" }).first().click();
+    await reporter.getByRole("button", { name: "Read with AI" }).first().click();
     await expect(reporter.getByText("Check every suggestion against the document")).toBeVisible();
     await reporter.getByRole("radio", { name: "Add as suspected medicine" }).first().check();
     await reporter.getByRole("radio", { name: "Add as concomitant product" }).nth(1).check();
     // An unclear value is only used once a person confirms it.
     await reporter.getByText("Unclear on the document. I have checked this value myself.").first().click();
+    await reporter
+      .getByLabel("I verified that this document belongs to this report despite the different initials.")
+      .check();
+    await reporter
+      .getByLabel("I checked the selected values, dates, doses and units against the source document.")
+      .check();
     await reporter.getByRole("button", { name: "Add to report" }).click();
 
     await expect(reporter.locator('input[name="suspectedMedicines.0.name"]')).toHaveValue(/Amoxicillin/);

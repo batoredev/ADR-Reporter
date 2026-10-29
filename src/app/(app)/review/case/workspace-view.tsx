@@ -29,6 +29,7 @@ import {
   SubmissionList,
   VersionList,
 } from "@/components/case/case-panels";
+import { AiReviewSummary } from "@/components/ai/ai-review-summary";
 import { CaseSummary } from "@/components/case/case-summary";
 import { EscalateButton } from "@/components/case/escalate-button";
 import { Timeline } from "@/components/case/timeline";
@@ -286,6 +287,7 @@ function Workspace({
               ? " · purple marks values read from an uploaded document and verified"
               : ""}
           </p>
+          <AiReviewSummary events={d.timeline} />
           <CaseSummary snapshot={snapshot} changed={changed} provenance={d.provenance} issueCounts={issueCounts} />
         </div>
         <div className="space-y-4">

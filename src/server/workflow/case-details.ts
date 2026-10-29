@@ -83,7 +83,7 @@ export async function getCaseDetails(user: CurrentUser, caseId: string) {
       include: {
         document: { select: { id: true, originalName: true } },
         verifiedBy: { select: { name: true } },
-        extractedItem: { select: { run: { select: { model: true, provider: true } } } },
+        extractedItem: { select: { uncertain: true, run: { select: { model: true, provider: true } } } },
       },
     }),
     db.auditLog.findMany({
@@ -132,6 +132,7 @@ export async function getCaseDetails(user: CurrentUser, caseId: string) {
             caseId,
             verifiedBy: p.verifiedBy?.name ?? null,
             model: p.extractedItem?.run.model ?? null,
+            uncertainReading: p.extractedItem?.uncertain ?? false,
           },
         ]),
     ),

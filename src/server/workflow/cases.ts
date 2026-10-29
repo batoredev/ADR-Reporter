@@ -58,6 +58,12 @@ export async function loadCase(user: CurrentUser, caseId: string, client: Tx | t
   return { c, access };
 }
 
+/** Serialize edits on the parent before reading its version and child rows. */
+export async function lockCase(user: CurrentUser, caseId: string, tx: Tx) {
+  await tx.$queryRaw`SELECT id FROM "AdrCase" WHERE id = ${caseId} AND "institutionId" = ${user.institutionId} FOR UPDATE`;
+  return loadCase(user, caseId, tx);
+}
+
 export async function createDraft(user: CurrentUser): Promise<{ id: string }> {
   if (!canReport(user)) throw new WorkflowError("Only reporters can create reports.", "FORBIDDEN");
   return db.$transaction(async (tx) => {
@@ -144,7 +150,7 @@ export async function saveDraft(
   }
   const values = parsed.data;
   return db.$transaction(async (tx) => {
-    const { c, access } = await loadCase(user, caseId, tx);
+    const { c, access } = await lockCase(user, caseId, tx);
     if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "CONFLICT");
     if (c.lockVersion !== lockVersion)
       throw new WorkflowError(
@@ -185,7 +191,7 @@ export async function submitCase(
 ) {
   if (!input.declaration) throw new WorkflowError("Please confirm the declaration before submitting.");
   return db.$transaction(async (tx) => {
-    const { c, access } = await loadCase(user, caseId, tx);
+    const { c, access } = await lockCase(user, caseId, tx);
     if (!access.edit) throw new WorkflowError("This report cannot be submitted in its current state.", "CONFLICT");
     if (c.lockVersion !== input.lockVersion)
       throw new WorkflowError("This report changed after you opened this page. Reload and check it again.", "CONFLICT");
