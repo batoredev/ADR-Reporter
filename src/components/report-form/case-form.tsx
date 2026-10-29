@@ -4,7 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useRouter } from "next/navigation";
 import { FormProvider, useFieldArray, useForm, useWatch, type FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, Plus, Save, Send, Siren, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleDashed,
+  FileText,
+  Loader2,
+  Plus,
+  Save,
+  Send,
+  Siren,
+  Trash2,
+} from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,8 +48,11 @@ import {
 } from "@/lib/domain/labels";
 import { isPotentiallySerious } from "@/lib/domain/seriousness";
 import { actions } from "@/lib/api/actions";
+import { openFile } from "@/lib/api/client";
 import { refreshData } from "@/lib/api/use-api";
-import { pages } from "@/lib/routes";
+import { files, pages } from "@/lib/routes";
+import type { AiStatus } from "@/server/ai/provider";
+import { AiCheckPanel } from "./ai-check-panel";
 import {
   CheckboxGroup,
   fieldId,
@@ -51,6 +65,7 @@ import {
   type IssueView,
 } from "./fields";
 import { SaveDraftContext } from "./form-context";
+import { NarrativeHelper } from "./narrative-helper";
 
 const options = (labels: Record<string, string>) => Object.entries(labels).map(([value, label]) => ({ value, label }));
 
@@ -65,7 +80,8 @@ export interface CaseFormProps {
   reporter: ReporterProfile;
   issuesByPath: Record<string, IssueView[]>;
   hasOpenEscalation: boolean;
-  /** Rendered at the top of section C (prescription extraction). */
+  ai: AiStatus;
+  /** Rendered at the top of section C (document extraction). */
   extractionSlot?: ReactNode;
 }
 
@@ -101,6 +117,7 @@ export function CaseForm({
   reporter,
   issuesByPath,
   hasOpenEscalation,
+  ai,
   extractionSlot,
 }: CaseFormProps) {
   const router = useRouter();
@@ -330,12 +347,15 @@ export function CaseForm({
                   </label>
                 </div>
               </div>
-              <TextField
-                name="reactionDescription"
-                label="7. Describe the reaction"
-                multiline
-                issues={issues("reactionDescription")}
-              />
+              <div className="space-y-2">
+                <TextField
+                  name="reactionDescription"
+                  label="7. Describe the reaction"
+                  multiline
+                  issues={issues("reactionDescription")}
+                />
+                <NarrativeHelper caseId={caseId} ai={ai} />
+              </div>
               <TextField
                 name="reactionManagement"
                 label="7. Management of the reaction"
@@ -381,7 +401,7 @@ export function CaseForm({
                 unknown={unknownCase("outcome")}
                 issues={issues("outcome")}
               />
-              <div className="space-y-3">
+              <div className="space-y-3" id={fieldId("investigations")}>
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold">12. Relevant investigations</h3>
                   <Button
@@ -583,7 +603,7 @@ export function CaseForm({
                 <Plus aria-hidden /> Add suspected medicine
               </Button>
 
-              <div className="space-y-3 border-t pt-4">
+              <div className="space-y-3 border-t pt-4" id={fieldId("concomitantProducts")}>
                 <div>
                   <h3 className="text-sm font-semibold">11. Concomitant products</h3>
                   <p className="text-[13px] text-muted-foreground">
@@ -692,6 +712,14 @@ export function CaseForm({
                 >
                   <Save aria-hidden /> Save draft
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void openFile(files.casePdf(caseId), save)}
+                  title="The official PvPI form v1.4 filled with this draft"
+                >
+                  <FileText aria-hidden /> PvPI PDF
+                </Button>
                 <Button type="button" onClick={() => void goToSubmit()} disabled={navigating}>
                   <Send aria-hidden /> Review and submit
                 </Button>
@@ -699,8 +727,9 @@ export function CaseForm({
             </div>
           </form>
 
-          <aside className="lg:sticky lg:top-4 lg:self-start">
+          <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
             <CompletenessPanel completeness={completeness} caseNumber={caseNumber} />
+            <AiCheckPanel caseId={caseId} ai={ai} />
           </aside>
         </div>
 

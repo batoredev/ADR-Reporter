@@ -103,10 +103,17 @@ export async function apiBlob(path: string): Promise<Blob> {
   return response.blob();
 }
 
-/** Opens a signed-in-only file (PDF, uploaded document) in a new tab. */
-export async function openFile(path: string) {
+/**
+ * Opens a signed-in-only file (PDF, uploaded document) in a new tab.
+ * `prepare` runs first (for example saving a draft); returning false cancels.
+ */
+export async function openFile(path: string, prepare?: () => Promise<boolean>) {
   // Opened before the download so pop-up blockers allow it.
   const tab = window.open("", "_blank");
+  if (prepare && !(await prepare())) {
+    tab?.close();
+    return;
+  }
   try {
     const url = URL.createObjectURL(await apiBlob(path));
     if (tab) tab.location.href = url;

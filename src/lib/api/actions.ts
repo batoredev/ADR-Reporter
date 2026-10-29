@@ -4,6 +4,7 @@ import type { ActionResult } from "@/lib/action-result";
 import type { CaseFormValues } from "@/lib/domain/case-form";
 import type { SaveResult } from "@/server/workflow/cases";
 import type { ExtractionView } from "@/server/workflow/extraction";
+import type { ConsistencyResult, NarrativeDraft } from "@/server/workflow/ai-assist";
 import { ApiError, apiSend } from "./client";
 
 async function result<T>(call: Promise<T>): Promise<ActionResult<T>> {
@@ -43,7 +44,17 @@ export const actions = {
   runExtraction: (caseId: string, documentId: string) =>
     post<ExtractionView>(`/cases/${id(caseId)}/documents/${id(documentId)}/extract`),
   applyExtraction: (caseId: string, runId: string, input: unknown) =>
-    post<{ added: number }>(`/cases/${id(caseId)}/extractions/${id(runId)}/apply`, input),
+    post<{ added: number; filled: number; investigationsAdded: number }>(
+      `/cases/${id(caseId)}/extractions/${id(runId)}/apply`,
+      input,
+    ),
+  draftNarrative: (caseId: string, notes: string, useReport: boolean) =>
+    post<NarrativeDraft>(`/cases/${id(caseId)}/narrative`, { notes, useReport }),
+  useNarrative: (caseId: string, draftId: string, text: string) =>
+    post<null>(`/cases/${id(caseId)}/narrative/${id(draftId)}/use`, { text }),
+  checkWithAi: (caseId: string) => post<ConsistencyResult>(`/cases/${id(caseId)}/ai-check`),
+  keepFinding: (caseId: string, checkId: string, index: number, reason: string) =>
+    post<null>(`/cases/${id(caseId)}/ai-check/${id(checkId)}/keep`, { index, reason }),
 
   claim: (caseId: string) => post(`/cases/${id(caseId)}/claim`),
   resume: (caseId: string) => post(`/cases/${id(caseId)}/resume`),

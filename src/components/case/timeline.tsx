@@ -16,7 +16,13 @@ function detail(entry: TimelineEntry): string | null {
   if (Array.isArray(d.changed) && d.changed.length)
     return `${d.changed.length} field${d.changed.length === 1 ? "" : "s"} changed`;
   if (typeof d.to === "string") return `to ${d.to}`;
-  return null;
+  if (entry.action === "AI_NARRATIVE_USED") return d.edited ? "edited by the reporter first" : "used as drafted";
+  if (entry.action === "AI_CHECK_KEPT" && typeof d.finding === "string")
+    return `${d.finding}${typeof d.reason === "string" ? ` (reason: ${d.reason})` : ""}`;
+  const model = typeof d.provider === "string" && typeof d.model === "string" ? `${d.provider} / ${d.model}` : null;
+  if (entry.action === "AI_CHECK_RUN" && Array.isArray(d.findings))
+    return `${d.findings.length} point${d.findings.length === 1 ? "" : "s"} to check${model ? ` · ${model}` : ""}`;
+  return model;
 }
 
 /** The case's audit trail, newest first. Entries cannot be edited or deleted. */

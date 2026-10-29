@@ -12,6 +12,7 @@ import {
   recordUrgentNotification,
 } from "@/server/workflow/escalations";
 import { applyExtraction, runExtraction, uploadDocument } from "@/server/workflow/extraction";
+import { checkConsistency, draftNarrative, keepFinding, recordNarrativeUse } from "@/server/workflow/ai-assist";
 import { getReviewQueue, parseQueueFilter } from "@/server/workflow/queue";
 import {
   addComment,
@@ -155,6 +156,43 @@ export const routes: Route[] = [
     auth: true,
     handler: async ({ user, params, request }) =>
       applyExtraction(user, params.id, params.runId, await readJson(request)),
+  },
+
+  // AI help while writing the report
+  {
+    method: "POST",
+    path: "/cases/:id/narrative",
+    auth: true,
+    handler: async ({ user, params, request }) => {
+      const body = await readJson(request);
+      return draftNarrative(user, params.id, { notes: text(body, "notes"), useReport: body.useReport !== false });
+    },
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/narrative/:draftId/use",
+    auth: true,
+    handler: async ({ user, params, request }) =>
+      recordNarrativeUse(user, params.id, { draftId: params.draftId, text: text(await readJson(request), "text") }),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/ai-check",
+    auth: true,
+    handler: ({ user, params }) => checkConsistency(user, params.id),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/ai-check/:checkId/keep",
+    auth: true,
+    handler: async ({ user, params, request }) => {
+      const body = await readJson(request);
+      return keepFinding(user, params.id, {
+        checkId: params.checkId,
+        index: Number(body.index),
+        reason: text(body, "reason"),
+      });
+    },
   },
 
   // Review

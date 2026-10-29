@@ -1,5 +1,6 @@
 // Completeness and consistency checks for a report. They point out missing or
 // contradictory information; they never change what the reporter entered.
+import { todayInAppZone } from "@/lib/format";
 import type { CaseFormValues } from "./case-form";
 import { isDefinitelyBefore } from "./partial-date";
 
@@ -27,7 +28,11 @@ export interface ReporterProfile {
 
 const blank = (v: string | undefined | null) => !v || v.trim() === "";
 
-export function assessCompleteness(v: CaseFormValues, reporter?: ReporterProfile): Completeness {
+export function assessCompleteness(
+  v: CaseFormValues,
+  reporter?: ReporterProfile,
+  today: string = todayInAppZone(),
+): Completeness {
   const missing: Finding[] = [];
   const gaps: Finding[] = [];
   const warnings: Finding[] = [];
@@ -93,6 +98,66 @@ export function assessCompleteness(v: CaseFormValues, reporter?: ReporterProfile
     });
   if (v.seriousnessCriteria.includes("DEATH") && blank(v.deathDate.value))
     gaps.push({ path: "deathDate", message: "Date of death" });
+  if (v.seriousnessCriteria.includes("DEATH") && v.outcome && v.outcome !== "FATAL" && v.outcome !== "UNKNOWN")
+    warnings.push({ path: "outcome", message: "The 'Death' criterion is ticked but the outcome is not fatal." });
+  if (v.seriousAnswer === "YES" && v.seriousnessCriteria.length === 0)
+    warnings.push({ path: "seriousnessCriteria", message: "Seriousness is 'Yes': tick the criteria that apply." });
+  if (isDefinitelyBefore(v.deathDate.value, start))
+    warnings.push({ path: "deathDate", message: "The date of death is before the reaction started." });
+  if (v.reactionOngoing && (v.outcome === "RECOVERED" || v.outcome === "RECOVERED_WITH_SEQUELAE"))
+    warnings.push({ path: "outcome", message: "The reaction is marked ongoing but the outcome says recovered." });
+
+  // Dates cannot be in the future.
+  const future = (value: string, path: string, what: string) => {
+    if (isDefinitelyBefore(today, value)) warnings.push({ path, message: `${what} is in the future.` });
+  };
+  future(v.reactionStartDate.value, "reactionStartDate", "The reaction start date");
+  if (!v.reactionOngoing) future(v.reactionStopDate.value, "reactionStopDate", "The reaction stop date");
+  future(v.deathDate.value, "deathDate", "The date of death");
+  for (const m of named) {
+    const row = `suspectedMedicines.${m.id ?? "new"}`;
+    future(m.startDate.value, `${row}.startDate`, `${m.name}: the start date`);
+    if (!m.ongoing) future(m.stopDate.value, `${row}.stopDate`, `${m.name}: the stop date`);
+    if (m.ongoing && m.actionTaken === "DRUG_WITHDRAWN")
+      warnings.push({
+        path: `${row}.actionTaken`,
+        message: `${m.name} is marked as still being taken, but the action taken says it was withdrawn.`,
+      });
+    const reintroduced = m.rechallenge === "YES" || m.rechallenge === "NO" || m.rechallenge === "EFFECT_UNKNOWN";
+    if (reintroduced && m.actionTaken === "DOSE_NOT_CHANGED")
+      warnings.push({
+        path: `${row}.rechallenge`,
+        message: `${m.name} is recorded as reintroduced, but the action taken says the dose was not changed.`,
+      });
+  }
+  v.investigations.forEach((i) => {
+    if (i.testName || i.result)
+      future(i.date.value, `investigations.${i.id ?? "new"}.date`, `${i.testName || "A test"}: the date`);
+  });
+
+  // The same medicine entered twice, or as both suspected and concomitant.
+  const key = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+  const seen = new Map<string, string>();
+  for (const m of named) {
+    const k = key(m.name);
+    if (seen.has(k))
+      warnings.push({ path: `suspectedMedicines.${m.id ?? "new"}.name`, message: `${m.name} is listed twice.` });
+    seen.set(k, "suspected");
+  }
+  for (const p of v.concomitantProducts.filter((p) => !blank(p.name))) {
+    const row = `concomitantProducts.${p.id ?? "new"}`;
+    if (seen.get(key(p.name)) === "suspected")
+      warnings.push({
+        path: `${row}.name`,
+        message: `${p.name} is listed as both a suspected medicine and a concomitant product.`,
+      });
+    if (p.usedToTreatReaction && isDefinitelyBefore(p.startDate.value, start))
+      warnings.push({
+        path: `${row}.startDate`,
+        message: `${p.name} is marked as used to treat the reaction but was started before the reaction.`,
+      });
+    future(p.startDate.value, `${row}.startDate`, `${p.name}: the start date`);
+  }
 
   return { missing, gaps, warnings, ready: missing.length === 0 };
 }

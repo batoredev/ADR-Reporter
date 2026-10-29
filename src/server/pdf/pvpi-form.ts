@@ -146,28 +146,36 @@ export async function generatePvpiPdf(s: CaseSnapshot, options: PdfOptions): Pro
     return lines;
   }
 
-  /** One-line box: 8 pt, shrinking to 6 pt; longer text goes to the continuation sheet. */
+  /**
+   * One-line box: 8 pt, shrinking to 5.5 pt to fit; longer text goes to the
+   * continuation sheet. Tall boxes (such as weight) get their text at the top,
+   * next to the printed label, instead of floating in the middle.
+   */
   const cell = (name: string, raw: string | null | undefined, label: string) => {
     if (!raw) return;
     guard(name);
     const text = clean(raw);
     const field = form.getTextField(name);
-    const { width } = rectOf(name);
-    field.disableMultiline();
+    const { width, height } = rectOf(name);
     let size = 8;
-    while (size > 6 && helv.widthOfTextAtSize(text, size) > width - 3) size -= 0.5;
+    while (size > 5.5 && helv.widthOfTextAtSize(text, size) > width - 3) size -= 0.5;
     let shown = text;
     if (helv.widthOfTextAtSize(text, size) > width - 3) {
       continuation.push({ label, text });
-      shown = helv.widthOfTextAtSize("See cont. sheet", 6) <= width - 3 ? "See cont. sheet" : "See cont.";
       size = 6;
+      shown = helv.widthOfTextAtSize("See cont. sheet", size) <= width - 3 ? "See cont. sheet" : "See cont.";
     }
+    if (height > 16) field.enableMultiline();
+    else field.disableMultiline();
     field.setText(shown);
     field.setFontSize(size);
     filled[name] = shown;
   };
 
-  /** Multi-line box at 8 pt; lines that do not fit continue on the continuation sheet. */
+  /**
+   * Multi-line box: 8 pt, shrinking to 6.5 pt so the entry stays on the form;
+   * lines that still do not fit continue on the continuation sheet.
+   */
   const box = (name: string, raw: string, label: string) => {
     if (!raw.trim()) return;
     guard(name);
@@ -175,15 +183,21 @@ export async function generatePvpiPdf(s: CaseSnapshot, options: PdfOptions): Pro
     const field = form.getTextField(name);
     const { width, height } = rectOf(name);
     field.enableMultiline();
-    const lines = wrap(text, 8, width - 6);
-    const maxLines = Math.max(1, Math.floor((height - 4) / (8 * 1.17)));
+    const capacity = (size: number) => Math.max(1, Math.floor((height - 4) / (size * 1.17)));
+    let size = 8;
+    let lines = wrap(text, size, width - 6);
+    while (size > 6.5 && lines.length > capacity(size)) {
+      size -= 0.5;
+      lines = wrap(text, size, width - 6);
+    }
+    const maxLines = capacity(size);
     let shown = lines;
     if (lines.length > maxLines) {
       shown = [...lines.slice(0, maxLines - 1), "(continued on the continuation sheet)"];
       continuation.push({ label, text: lines.slice(maxLines - 1).join(" ") });
     }
     field.setText(shown.join("\n"));
-    field.setFontSize(8);
+    field.setFontSize(size);
     filled[name] = shown.join("\n");
   };
 
@@ -360,32 +374,57 @@ export async function generatePvpiPdf(s: CaseSnapshot, options: PdfOptions): Pro
   if (options.flatten !== false) form.flatten();
 
   const grey = rgb(0.35, 0.39, 0.45);
+  const red = rgb(0.71, 0.05, 0.05);
   if (continuation.length) {
+    // Identifies the report on every sheet, as the form asks ("# Use separate page for more information").
+    const ident = clean(
+      [
+        s.patient.initials && `Patient initials: ${s.patient.initials}`,
+        s.reaction.terms && `Reaction: ${s.reaction.terms}`,
+        s.reaction.startDate && `Onset: ${date(s.reaction.startDate, s.reaction.startDateApprox)}`,
+        s.reporter.reportDate && `Date of report: ${date(s.reporter.reportDate)}`,
+      ]
+        .filter(Boolean)
+        .join("   |   "),
+    );
+    const sheets: ReturnType<typeof pdf.addPage>[] = [];
     let page = pdf.addPage([595.2, 841.92]);
-    let y = 800;
+    let y = 0;
     const heading = () => {
+      sheets.push(page);
+      y = 806;
+      page.drawRectangle({ x: 36, y: y - 6, width: 523.2, height: 22, color: red });
       page.drawText("SUSPECTED ADVERSE DRUG REACTION REPORTING FORM: CONTINUATION SHEET", {
-        x: 40,
-        y,
-        size: 11,
+        x: 44,
+        y: y + 1,
+        size: 10,
         font: bold,
-      });
-      y -= 18;
-      page.drawText(`Case ${options.caseNumber}. Entries that did not fit their box on page 1.`, {
-        x: 40,
-        y,
-        size: 9,
-        font: helv,
-        color: grey,
+        color: rgb(1, 1, 1),
       });
       y -= 24;
+      for (const line of wrap(ident, 8.5, 515)) {
+        page.drawText(line, { x: 40, y, size: 8.5, font: helv });
+        y -= 11;
+      }
+      page.drawText(
+        `Entries that did not fit their box on page 1 of the form, in form order. Internal ref ${options.caseNumber}.`,
+        {
+          x: 40,
+          y,
+          size: 8,
+          font: helv,
+          color: grey,
+        },
+      );
+      y -= 8;
+      page.drawLine({ start: { x: 36, y }, end: { x: 559.2, y }, thickness: 0.6, color: grey });
+      y -= 18;
     };
     heading();
     for (const entry of continuation) {
-      const lines = wrap(entry.text, 9, 515);
+      const lines = wrap(entry.text, 9, 505);
       if (y - 13 - lines.length * 12 < 60) {
         page = pdf.addPage([595.2, 841.92]);
-        y = 800;
         heading();
       }
       page.drawText(entry.label, { x: 40, y, size: 9, font: bold });
@@ -394,8 +433,17 @@ export async function generatePvpiPdf(s: CaseSnapshot, options: PdfOptions): Pro
         page.drawText(line, { x: 52, y, size: 9, font: helv });
         y -= 12;
       }
-      y -= 6;
+      y -= 7;
     }
+    sheets.forEach((sheet, i) =>
+      sheet.drawText(`Continuation sheet ${i + 1} of ${sheets.length}`, {
+        x: 470,
+        y: 28,
+        size: 8,
+        font: helv,
+        color: grey,
+      }),
+    );
   }
 
   const reference = clean(

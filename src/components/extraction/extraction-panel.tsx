@@ -1,17 +1,30 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, FileText, Loader2, ScanText, Sparkles, Upload } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { AiChain, AiSource } from "@/components/ai/ai-source";
 import { useSaveDraft } from "@/components/report-form/form-context";
 import { inputClass } from "@/components/report-form/fields";
-import { DATE_FIELDS, EXTRACTED_FIELD_LABELS, FILLABLE, type ExtractedField } from "@/lib/domain/extraction";
+import {
+  DATE_FIELDS,
+  DOCUMENT_TYPE_LABELS,
+  EXTRACTED_FIELD_LABELS,
+  FILLABLE,
+  INVESTIGATION_FIELD_LABELS,
+  SINGLE_FIELDS,
+  type ExtractedField,
+  type InvestigationField,
+  type SingleField,
+} from "@/lib/domain/extraction";
+import { AGE_UNIT_LABELS, GENDER_LABELS } from "@/lib/domain/labels";
+import { formatForDisplay } from "@/lib/domain/partial-date";
 import { FileLink, ProtectedFrame, useFileUrl } from "@/components/data/protected-file";
 import { actions, type UploadedDocumentView } from "@/lib/api/actions";
 import { refreshData } from "@/lib/api/use-api";
 import { files } from "@/lib/routes";
-import type { ExtractionView } from "@/server/workflow/extraction";
+import type { ExtractionView, ProposedValue } from "@/server/workflow/extraction";
 import type { AiStatus } from "@/server/ai/provider";
 
 type Target = "SUSPECTED" | "CONCOMITANT" | "SKIP";
@@ -20,27 +33,61 @@ interface FieldChoice {
   value: string;
   confirmedUncertain: boolean;
 }
+interface SingleChoice extends FieldChoice {
+  mode: "replace" | "append";
+}
 
-const FIELD_ORDER = Object.keys(EXTRACTED_FIELD_LABELS) as ExtractedField[];
+const MED_FIELDS = Object.keys(EXTRACTED_FIELD_LABELS) as ExtractedField[];
+const INV_FIELDS = Object.keys(INVESTIGATION_FIELD_LABELS) as InvestigationField[];
+
+const ENUM_OPTIONS: Partial<Record<string, Record<string, string>>> = {
+  ageUnit: AGE_UNIT_LABELS,
+  gender: GENDER_LABELS,
+};
+
+function shown(field: SingleField, value: string | null): string {
+  if (!value) return "";
+  const kind = SINGLE_FIELDS[field].kind;
+  if (kind === "date") return formatForDisplay(value);
+  return ENUM_OPTIONS[kind]?.[value] ?? value;
+}
+
+const fresh = (p: ProposedValue | undefined, extra = true): FieldChoice => ({
+  use: Boolean(p?.value) && !p?.uncertain && extra,
+  value: p?.value ?? "",
+  confirmedUncertain: false,
+});
 
 function initialChoices(run: ExtractionView) {
-  return run.medications.map((m) => ({
-    target: "SKIP" as Target,
-    fields: Object.fromEntries(
-      FIELD_ORDER.map((f) => {
-        const p = m.fields[f];
+  return {
+    singles: Object.fromEntries(
+      run.singles.map((s) => {
+        const long = SINGLE_FIELDS[s.field].kind === "long";
+        // Never pre-tick a value that would change what the reporter already entered.
         return [
-          f,
-          {
-            use: Boolean(p?.value) && !p?.uncertain && f !== "duration",
-            value: p?.value ?? "",
-            confirmedUncertain: false,
-          },
+          s.proposal.itemId,
+          { ...fresh(s.proposal, !s.current), mode: long && s.current ? "append" : "replace" },
         ];
       }),
-    ) as Record<ExtractedField, FieldChoice>,
-  }));
+    ) as Record<string, SingleChoice>,
+    investigations: run.investigations.map((inv) => ({
+      add: Boolean(inv.fields.testName?.value || inv.fields.result?.value),
+      fields: Object.fromEntries(INV_FIELDS.map((f) => [f, fresh(inv.fields[f])])) as Record<
+        InvestigationField,
+        FieldChoice
+      >,
+    })),
+    medications: run.medications.map((m) => ({
+      target: "SKIP" as Target,
+      fields: Object.fromEntries(MED_FIELDS.map((f) => [f, fresh(m.fields[f], f !== "duration")])) as Record<
+        ExtractedField,
+        FieldChoice
+      >,
+    })),
+  };
 }
+
+type Choices = ReturnType<typeof initialChoices>;
 
 export function ExtractionPanel({
   caseId,
@@ -58,7 +105,7 @@ export function ExtractionPanel({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [run, setRun] = useState<ExtractionView | null>(null);
-  const [choices, setChoices] = useState<ReturnType<typeof initialChoices>>([]);
+  const [choices, setChoices] = useState<Choices | null>(null);
 
   async function upload() {
     const file = fileRef.current?.files?.[0];
@@ -79,7 +126,7 @@ export function ExtractionPanel({
     }
     setDocuments((docs) => [result.data, ...docs]);
     if (fileRef.current) fileRef.current.value = "";
-    setMessage(`${result.data.name} uploaded.${ai.available ? " You can now extract the medicines." : ""}`);
+    setMessage(`${result.data.name} uploaded.${ai.available ? " You can now read it with AI." : ""}`);
   }
 
   async function extract(documentId: string) {
@@ -97,16 +144,51 @@ export function ExtractionPanel({
     setChoices(initialChoices(result.data));
   }
 
-  function update(index: number, field: ExtractedField, patch: Partial<FieldChoice>) {
-    setChoices((all) =>
-      all.map((m, i) =>
-        i === index ? { ...m, fields: { ...m.fields, [field]: { ...m.fields[field], ...patch } } } : m,
-      ),
+  const setSingle = (itemId: string, patch: Partial<SingleChoice>) =>
+    setChoices((c) => c && { ...c, singles: { ...c.singles, [itemId]: { ...c.singles[itemId], ...patch } } });
+  const setInvestigation = (
+    i: number,
+    patch: { add?: boolean; field?: InvestigationField; choice?: Partial<FieldChoice> },
+  ) =>
+    setChoices(
+      (c) =>
+        c && {
+          ...c,
+          investigations: c.investigations.map((inv, j) =>
+            j !== i
+              ? inv
+              : {
+                  add: patch.add ?? inv.add,
+                  fields: patch.field
+                    ? { ...inv.fields, [patch.field]: { ...inv.fields[patch.field], ...patch.choice } }
+                    : inv.fields,
+                },
+          ),
+        },
     );
-  }
+  const setMedication = (
+    i: number,
+    patch: { target?: Target; field?: ExtractedField; choice?: Partial<FieldChoice> },
+  ) =>
+    setChoices(
+      (c) =>
+        c && {
+          ...c,
+          medications: c.medications.map((m, j) =>
+            j !== i
+              ? m
+              : {
+                  target: patch.target ?? m.target,
+                  fields: patch.field
+                    ? { ...m.fields, [patch.field]: { ...m.fields[patch.field], ...patch.choice } }
+                    : m.fields,
+                },
+          ),
+        },
+    );
 
   async function apply() {
-    if (!run) return;
+    if (!run || !choices) return;
     setBusy("apply");
     setError(null);
     if (saveDraft && !(await saveDraft())) {
@@ -115,17 +197,29 @@ export function ExtractionPanel({
       return;
     }
     const payload = {
+      singles: run.singles.map((s) => {
+        const c = choices.singles[s.proposal.itemId];
+        return { itemId: s.proposal.itemId, ...c };
+      }),
+      investigations: run.investigations.map((inv, i) => ({
+        index: inv.index,
+        add: choices.investigations[i].add,
+        fields: INV_FIELDS.filter((f) => inv.fields[f]).map((f) => ({
+          itemId: inv.fields[f].itemId,
+          ...choices.investigations[i].fields[f],
+          use: choices.investigations[i].add && choices.investigations[i].fields[f].use,
+        })),
+      })),
       medications: run.medications.map((m, i) => ({
         index: m.index,
-        target: choices[i].target,
-        fields: FIELD_ORDER.filter((f) => m.fields[f]).map((f) => ({
+        target: choices.medications[i].target,
+        fields: MED_FIELDS.filter((f) => m.fields[f]).map((f) => ({
           itemId: m.fields[f]!.itemId,
+          ...choices.medications[i].fields[f],
           use:
-            choices[i].target !== "SKIP" &&
-            FILLABLE[choices[i].target as "SUSPECTED" | "CONCOMITANT"].includes(f) &&
-            choices[i].fields[f].use,
-          value: choices[i].fields[f].value,
-          confirmedUncertain: choices[i].fields[f].confirmedUncertain,
+            choices.medications[i].target !== "SKIP" &&
+            FILLABLE[choices.medications[i].target as "SUSPECTED" | "CONCOMITANT"].includes(f) &&
+            choices.medications[i].fields[f].use,
         })),
       })),
     };
@@ -136,39 +230,39 @@ export function ExtractionPanel({
       return;
     }
     setRun(null);
+    const { filled, investigationsAdded, added } = result.data;
+    const parts = [
+      filled && `${filled} detail${filled === 1 ? "" : "s"} filled in`,
+      investigationsAdded && `${investigationsAdded} test${investigationsAdded === 1 ? "" : "s"} added`,
+      added && `${added} medicine${added === 1 ? "" : "s"} added`,
+    ].filter(Boolean);
     setMessage(
-      result.data.added
-        ? `${result.data.added} medicine${result.data.added === 1 ? "" : "s"} added below. Each value is marked as coming from the document.`
-        : "Nothing was added.",
+      parts.length ? `${parts.join(", ")}. Each value is marked as coming from the document.` : "Nothing was added.",
     );
     refreshData();
   }
 
   const doc = run ? documents.find((d) => d.id === run.documentId) : null;
-  const chosen = choices.filter((c) => c.target !== "SKIP").length;
+  const chosen = choices
+    ? Object.values(choices.singles).filter((s) => s.use).length +
+      choices.investigations.filter((i) => i.add && Object.values(i.fields).some((f) => f.use)).length +
+      choices.medications.filter((m) => m.target !== "SKIP").length
+    : 0;
 
   return (
     <div className="space-y-3 rounded-lg border border-ai/25 bg-ai-soft/60 p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-            <ScanText className="size-4 text-ai" aria-hidden /> Extract from a prescription (optional)
+            <ScanText className="size-4 text-ai" aria-hidden /> Read a document with AI (optional)
           </h3>
           <p className="text-[13px] text-muted-foreground">
-            Upload a photo or PDF of a fictional prescription. Suggestions are only added after you check each value.
+            Upload a photo or PDF of a fictional prescription, lab report, discharge summary or clinical note. The AI
+            proposes patient details, the reaction, history, tests and medicines; nothing is added until you check it.
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
-          {ai.available ? (
-            <>
-              <Sparkles className="mr-1 inline size-3 text-ai" aria-hidden />
-              {ai.provider === "fixture"
-                ? "Test mode: saved example data, no AI service"
-                : `AI: ${ai.provider} / ${ai.model}`}
-            </>
-          ) : (
-            <>AI extraction unavailable: enter details manually. ({ai.reason})</>
-          )}
+          <AiChain ai={ai} />
         </p>
       </div>
 
@@ -177,7 +271,7 @@ export function ExtractionPanel({
           ref={fileRef}
           type="file"
           accept="image/png,image/jpeg,application/pdf"
-          aria-label="Prescription file"
+          aria-label="Document file"
           className="text-sm file:mr-2 file:rounded-md file:border file:border-input file:bg-background file:px-2 file:py-1 file:text-sm"
         />
         <Button type="button" variant="outline" size="sm" onClick={() => void upload()} disabled={busy !== null}>
@@ -202,8 +296,8 @@ export function ExtractionPanel({
                 onClick={() => void extract(d.id)}
                 disabled={!ai.available || busy !== null}
               >
-                {busy === "extract" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}{" "}
-                Extract medicines
+                {busy === "extract" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />} Read
+                with AI
               </Button>
             </li>
           ))}
@@ -212,7 +306,8 @@ export function ExtractionPanel({
 
       {busy === "extract" ? (
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground" aria-live="polite">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Reading the document…
+          <Loader2 className="size-4 animate-spin" aria-hidden /> Reading the document… free services are tried first;
+          this can take up to a minute.
         </p>
       ) : null}
       {error ? (
@@ -226,12 +321,14 @@ export function ExtractionPanel({
         </p>
       ) : null}
 
-      {run ? (
+      {run && choices ? (
         <div className="space-y-3 border-t border-ai/20 pt-3">
           <p className="text-[13px]">
-            <span className="font-medium">Check every suggestion against the document.</span> Suggested by{" "}
-            {run.provider === "fixture" ? "saved test data (not AI)" : `${run.provider} / ${run.model}`}. Choose where
-            each medicine goes; the AI never decides which medicine is suspected.
+            <span className="font-medium">
+              {DOCUMENT_TYPE_LABELS[run.documentType]}. Check every suggestion against the document.
+            </span>{" "}
+            Suggested by <AiSource provider={run.provider} model={run.model} attempts={run.attempts} />. The AI never
+            decides which medicine is suspected.
             {run.notes ? <span className="block text-muted-foreground">Note: {run.notes}</span> : null}
           </p>
           <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
@@ -245,14 +342,135 @@ export function ExtractionPanel({
               </div>
             ) : null}
             <div className="space-y-3">
-              {run.medications.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No medicines were found on this document.</p>
+              {run.singles.length ? (
+                <fieldset className="space-y-2 rounded-md border bg-background p-3">
+                  <legend className="px-1 text-sm font-semibold">Patient, reaction and history</legend>
+                  <div className="divide-y rounded-md border">
+                    {run.singles.map((s) => {
+                      const c = choices.singles[s.proposal.itemId];
+                      const kind = SINGLE_FIELDS[s.field].kind;
+                      const options = ENUM_OPTIONS[kind];
+                      return (
+                        <ProposalRow
+                          key={s.proposal.itemId}
+                          label={SINGLE_FIELDS[s.field].label}
+                          proposal={s.proposal}
+                          choice={c}
+                          onChange={(patch) => setSingle(s.proposal.itemId, patch)}
+                          input={
+                            options ? (
+                              <select
+                                className={inputClass}
+                                value={c.value}
+                                aria-label={`${SINGLE_FIELDS[s.field].label} value`}
+                                onChange={(e) => setSingle(s.proposal.itemId, { value: e.target.value })}
+                              >
+                                {!(c.value in options) ? <option value={c.value}>{c.value}</option> : null}
+                                {Object.entries(options).map(([v, l]) => (
+                                  <option key={v} value={v}>
+                                    {l}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : kind === "long" ? (
+                              <textarea
+                                rows={3}
+                                className={cn(inputClass, "h-auto py-1.5")}
+                                value={c.value}
+                                aria-label={`${SINGLE_FIELDS[s.field].label} value`}
+                                onChange={(e) => setSingle(s.proposal.itemId, { value: e.target.value })}
+                              />
+                            ) : (
+                              <input
+                                className={inputClass}
+                                value={c.value}
+                                aria-label={`${SINGLE_FIELDS[s.field].label} value`}
+                                placeholder={kind === "date" ? "YYYY-MM-DD" : undefined}
+                                onChange={(e) => setSingle(s.proposal.itemId, { value: e.target.value })}
+                              />
+                            )
+                          }
+                        >
+                          {s.current ? (
+                            <div className="space-y-1 text-xs text-warning">
+                              <p>
+                                The report already has: &ldquo;{shown(s.field, s.current).slice(0, 160)}
+                                {s.current.length > 160 ? "…" : ""}&rdquo;
+                              </p>
+                              {kind === "long" ? (
+                                <div className="flex gap-3 text-foreground">
+                                  {(["append", "replace"] as const).map((mode) => (
+                                    <label key={mode} className="flex items-center gap-1">
+                                      <input
+                                        type="radio"
+                                        name={`mode-${s.proposal.itemId}`}
+                                        className="size-3.5 accent-primary"
+                                        checked={c.mode === mode}
+                                        onChange={() => setSingle(s.proposal.itemId, { mode })}
+                                      />
+                                      {mode === "append" ? "Add to the end" : "Replace it"}
+                                    </label>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p>Ticking this replaces it.</p>
+                              )}
+                            </div>
+                          ) : null}
+                        </ProposalRow>
+                      );
+                    })}
+                  </div>
+                </fieldset>
               ) : null}
+
+              {run.investigations.map((inv, i) => {
+                const c = choices.investigations[i];
+                return (
+                  <fieldset key={`inv-${inv.index}`} className="space-y-2 rounded-md border bg-background p-3">
+                    <legend className="px-1 text-sm font-semibold">
+                      Test {i + 1}: {inv.fields.testName?.value ?? "name not read"}
+                    </legend>
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        checked={c.add}
+                        onChange={(e) => setInvestigation(i, { add: e.target.checked })}
+                      />
+                      Add this test to item 12 (investigations)
+                    </label>
+                    <div className={cn("divide-y rounded-md border", !c.add && "opacity-60")}>
+                      {INV_FIELDS.map((f) => (
+                        <ProposalRow
+                          key={f}
+                          label={INVESTIGATION_FIELD_LABELS[f]}
+                          proposal={inv.fields[f]}
+                          choice={c.fields[f]}
+                          disabled={!c.add}
+                          onChange={(patch) => setInvestigation(i, { field: f, choice: patch })}
+                          input={
+                            <input
+                              className={inputClass}
+                              value={c.fields[f].value}
+                              aria-label={`Test ${i + 1} ${INVESTIGATION_FIELD_LABELS[f]} value`}
+                              placeholder={f === "date" ? "YYYY-MM-DD" : undefined}
+                              disabled={!c.add}
+                              onChange={(e) => setInvestigation(i, { field: f, choice: { value: e.target.value } })}
+                            />
+                          }
+                        />
+                      ))}
+                    </div>
+                  </fieldset>
+                );
+              })}
+
               {run.medications.map((m, i) => {
-                const choice = choices[i];
+                const choice = choices.medications[i];
                 const allowed = choice.target === "SKIP" ? [] : FILLABLE[choice.target];
                 return (
-                  <fieldset key={m.index} className="space-y-2 rounded-md border bg-background p-3">
+                  <fieldset key={`med-${m.index}`} className="space-y-2 rounded-md border bg-background p-3">
                     <legend className="px-1 text-sm font-semibold">
                       Medicine {i + 1}: {m.fields.name?.value ?? "name not read"}
                     </legend>
@@ -274,82 +492,51 @@ export function ExtractionPanel({
                             name={`target-${m.index}`}
                             className="size-4 accent-primary"
                             checked={choice.target === value}
-                            onChange={() =>
-                              setChoices((all) => all.map((c, j) => (j === i ? { ...c, target: value } : c)))
-                            }
+                            onChange={() => setMedication(i, { target: value })}
                           />
                           {label}
                         </label>
                       ))}
                     </div>
                     <div className="divide-y rounded-md border">
-                      {FIELD_ORDER.map((f) => {
+                      {MED_FIELDS.map((f) => {
                         const p = m.fields[f];
                         if (!p) return null;
                         const fc = choice.fields[f];
-                        const usable = allowed.includes(f) && Boolean(p.value || fc.value);
                         return (
-                          <div
+                          <ProposalRow
                             key={f}
-                            className={cn(
-                              "grid gap-1 px-2 py-1.5 sm:grid-cols-[8.5rem_1fr]",
-                              !allowed.includes(f) && "opacity-60",
-                            )}
-                          >
-                            <label className="flex items-center gap-1.5 text-[13px]">
+                            label={EXTRACTED_FIELD_LABELS[f]}
+                            proposal={p}
+                            choice={fc}
+                            disabled={!allowed.includes(f)}
+                            onChange={(patch) => setMedication(i, { field: f, choice: patch })}
+                            input={
                               <input
-                                type="checkbox"
-                                className="size-4 accent-primary"
-                                checked={usable && fc.use}
-                                disabled={!usable}
-                                onChange={(e) => update(i, f, { use: e.target.checked })}
-                                aria-label={`Use ${EXTRACTED_FIELD_LABELS[f]}`}
+                                className={inputClass}
+                                value={fc.value}
+                                aria-label={`${EXTRACTED_FIELD_LABELS[f]} value`}
+                                placeholder={DATE_FIELDS.includes(f) ? "YYYY-MM-DD" : undefined}
+                                onChange={(e) => setMedication(i, { field: f, choice: { value: e.target.value } })}
+                                disabled={!allowed.includes(f)}
                               />
-                              {EXTRACTED_FIELD_LABELS[f]}
-                            </label>
-                            <div className="min-w-0 space-y-1">
-                              {p.value || fc.value ? (
-                                <input
-                                  className={inputClass}
-                                  value={fc.value}
-                                  aria-label={`${EXTRACTED_FIELD_LABELS[f]} value`}
-                                  placeholder={DATE_FIELDS.includes(f) ? "YYYY-MM-DD" : undefined}
-                                  onChange={(e) => update(i, f, { value: e.target.value })}
-                                  disabled={!allowed.includes(f)}
-                                />
-                              ) : (
-                                <p className="text-[13px] text-muted-foreground">Not on the document</p>
-                              )}
-                              {p.sourceText ? (
-                                <p className="text-xs text-muted-foreground">Read as: &ldquo;{p.sourceText}&rdquo;</p>
-                              ) : null}
-                              {p.uncertain ? (
-                                <label className="flex items-center gap-1.5 text-xs text-warning">
-                                  <input
-                                    type="checkbox"
-                                    className="size-3.5 accent-primary"
-                                    checked={fc.confirmedUncertain}
-                                    onChange={(e) =>
-                                      update(i, f, {
-                                        confirmedUncertain: e.target.checked,
-                                        use: e.target.checked || fc.use,
-                                      })
-                                    }
-                                  />
-                                  Unclear on the document. I have checked this value myself.
-                                </label>
-                              ) : null}
-                              {f === "duration" && p.value ? (
-                                <p className="text-xs text-muted-foreground">Not used to work out any dates.</p>
-                              ) : null}
-                            </div>
-                          </div>
+                            }
+                          >
+                            {f === "duration" && p.value ? (
+                              <p className="text-xs text-muted-foreground">Not used to work out any dates.</p>
+                            ) : null}
+                          </ProposalRow>
                         );
                       })}
                     </div>
                   </fieldset>
                 );
               })}
+
+              {!run.singles.length && !run.investigations.length && !run.medications.length ? (
+                <p className="text-sm text-muted-foreground">Nothing usable was found on this document.</p>
+              ) : null}
+
               <div className="flex flex-wrap gap-2">
                 <Button type="button" onClick={() => void apply()} disabled={busy !== null || chosen === 0}>
                   {busy === "apply" ? <Loader2 className="animate-spin" aria-hidden /> : null} Add to report
@@ -362,6 +549,65 @@ export function ExtractionPanel({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** One proposed value: tick to use, the editable value, what was read, and the unclear-reading check. */
+function ProposalRow({
+  label,
+  proposal,
+  choice,
+  disabled = false,
+  input,
+  onChange,
+  children,
+}: {
+  label: string;
+  proposal: ProposedValue;
+  choice: FieldChoice;
+  disabled?: boolean;
+  input: ReactNode;
+  onChange: (patch: Partial<FieldChoice>) => void;
+  children?: ReactNode;
+}) {
+  const usable = !disabled && Boolean(proposal.value || choice.value);
+  return (
+    <div className={cn("grid gap-1 px-2 py-1.5 sm:grid-cols-[9.5rem_1fr]", disabled && "opacity-60")}>
+      <label className="flex items-center gap-1.5 text-[13px]">
+        <input
+          type="checkbox"
+          className="size-4 accent-primary"
+          checked={usable && choice.use}
+          disabled={!usable}
+          onChange={(e) => onChange({ use: e.target.checked })}
+          aria-label={`Use ${label}`}
+        />
+        {label}
+      </label>
+      <div className="min-w-0 space-y-1">
+        {proposal.value || choice.value ? (
+          input
+        ) : (
+          <p className="text-[13px] text-muted-foreground">Not on the document</p>
+        )}
+        {proposal.sourceText ? (
+          <p className="text-xs text-muted-foreground">Read as: &ldquo;{proposal.sourceText}&rdquo;</p>
+        ) : null}
+        {proposal.uncertain ? (
+          <label className="flex items-center gap-1.5 text-xs text-warning">
+            <input
+              type="checkbox"
+              className="size-3.5 accent-primary"
+              checked={choice.confirmedUncertain}
+              disabled={disabled}
+              onChange={(e) => onChange({ confirmedUncertain: e.target.checked, use: e.target.checked || choice.use })}
+            />
+            Unclear on the document. I have checked this value myself.
+          </label>
+        ) : null}
+        {children}
+      </div>
     </div>
   );
 }

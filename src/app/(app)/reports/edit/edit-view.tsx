@@ -70,6 +70,7 @@ export function EditReportView() {
               reporter={d.reporter}
               issuesByPath={d.issuesByPath}
               hasOpenEscalation={d.hasOpenEscalation}
+              ai={d.ai}
               extractionSlot={<ExtractionPanel caseId={id} ai={d.ai} documents={d.documents} />}
             />
           </div>
