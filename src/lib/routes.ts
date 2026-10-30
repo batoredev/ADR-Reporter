@@ -7,6 +7,7 @@ export const pages = {
   caseEdit: (id: string) => `/reports/edit?id=${q(id)}`,
   caseSubmit: (id: string) => `/reports/submit?id=${q(id)}`,
   reviewCase: (id: string) => `/review/case?id=${q(id)}`,
+  fileView: (path: string) => `/files/view?path=${q(path)}`,
 };
 
 /** API paths of signed-in-only files. */

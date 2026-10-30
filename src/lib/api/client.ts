@@ -1,6 +1,7 @@
 // Talks to the API (the Supabase Edge Function "api"). Sign-in gives a bearer
 // token, kept in this browser's localStorage and sent with every request.
 import { decodeJson } from "@/lib/json";
+import { pages } from "@/lib/routes";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api").replace(/\/+$/, "");
 
@@ -98,9 +99,31 @@ export async function apiSend<T>(method: "POST" | "PUT", path: string, body?: un
   return decodeJson<T>(await response.text());
 }
 
-export async function apiBlob(path: string): Promise<Blob> {
+export async function apiFile(path: string): Promise<{ blob: Blob; filename: string }> {
   const response = await request(path, { method: "GET" });
-  return response.blob();
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  let filename = disposition.match(/filename="([^"]+)"/i)?.[1];
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      filename = decodeURIComponent(encoded);
+    } catch {
+      // Keep the plain filename if the encoded filename is malformed.
+    }
+  }
+  const extension = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg" }[blob.type];
+  // The API owns the name, but strip path separators and control characters.
+  filename = filename
+    ?.split(/[\\/]/)
+    .pop()
+    ?.replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+  return { blob, filename: filename || `document${extension ? `.${extension}` : ""}` };
+}
+
+export async function apiBlob(path: string): Promise<Blob> {
+  return (await apiFile(path)).blob;
 }
 
 /**
@@ -108,18 +131,16 @@ export async function apiBlob(path: string): Promise<Blob> {
  * `prepare` runs first (for example saving a draft); returning false cancels.
  */
 export async function openFile(path: string, prepare?: () => Promise<boolean>) {
-  // Opened before the download so pop-up blockers allow it.
-  const tab = window.open("", "_blank");
-  if (prepare && !(await prepare())) {
-    tab?.close();
-    return;
-  }
   try {
-    const url = URL.createObjectURL(await apiBlob(path));
-    if (tab) tab.location.href = url;
-    else window.location.assign(url);
+    if (prepare && !(await prepare())) return;
+    // Open a real page with loading/error states and a named download. Opening
+    // about:blank then navigating it to a fetched blob can leave an empty tab.
+    const url = pages.fileView(path);
+    const tab = window.open(url, "_blank");
+    // An awaited draft save may consume the browser's pop-up permission.
+    // The saved report is safe to leave, so use this tab when a new one is blocked.
+    if (!tab) window.location.assign(url);
   } catch (error) {
-    tab?.close();
     window.alert(error instanceof ApiError ? error.message : "The file could not be opened.");
   }
 }

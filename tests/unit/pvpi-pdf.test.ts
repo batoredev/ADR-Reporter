@@ -43,6 +43,23 @@ describe("PvPI PDF generation", () => {
     expect(filledFields).not.toHaveProperty(F["caseType.followUp"]);
   });
 
+  it.each(["draft", "approved"] as const)(
+    "generates a %s PDF when pasted cell values contain line breaks",
+    async (mode) => {
+      const result = await generatePvpiPdf(
+        snapshot({
+          reporter: { ...snapshot().reporter, address: "Demo Hospital\r\nWard 2" },
+          suspectedMedicines: [medicine({ name: "Amoxicillin\n500 mg", indication: "Chest\ninfection" })],
+        }),
+        { ...options, mode, flatten: true },
+      );
+      expect(result.filledFields[row.name]).toBe("Amoxicillin 500 mg");
+      expect(result.filledFields[row.indication]).toBe("Chest infection");
+      expect(result.filledFields[F["reporter.nameAndAddressLine2"]]).toBe("Demo Hospital Ward 2");
+      expect((await PDFDocument.load(result.bytes)).getPageCount()).toBeGreaterThanOrEqual(2);
+    },
+  );
+
   it("writes partial and approximate dates without placeholders", async () => {
     const s = snapshot({
       reaction: {

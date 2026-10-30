@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "cn";
-import { apiBlob, openFile } from "@/lib/api/client";
+import { apiFile, openFile } from "@/lib/api/client";
 
 /** A link-styled button that opens a signed-in-only file (PDF or upload) in a new tab. */
 export function FileLink({ path, children, className }: { path: string; children: ReactNode; className?: string }) {
@@ -21,26 +21,47 @@ export function FileLink({ path, children, className }: { path: string; children
 }
 
 /** Loads a signed-in-only file as a local object URL for <iframe> or <img>. */
-export function useFileUrl(path: string | null): { url: string | null; failed: boolean } {
-  const [state, setState] = useState<{ path: string; url: string | null; failed: boolean } | null>(null);
+export function useFileUrl(path: string | null) {
+  const [state, setState] = useState<{
+    path: string;
+    url: string | null;
+    filename: string | null;
+    contentType: string | null;
+    error: string | null;
+  } | null>(null);
   useEffect(() => {
     if (!path) return;
     let url: string | null = null;
     let cancelled = false;
-    apiBlob(path).then(
-      (blob) => {
+    apiFile(path).then(
+      ({ blob, filename }) => {
         if (cancelled) return;
         url = URL.createObjectURL(blob);
-        setState({ path, url, failed: false });
+        setState({ path, url, filename, contentType: blob.type, error: null });
       },
-      () => !cancelled && setState({ path, url: null, failed: true }),
+      (error: unknown) =>
+        !cancelled &&
+        setState({
+          path,
+          url: null,
+          filename: null,
+          contentType: null,
+          error: error instanceof Error ? error.message : "The file could not be loaded.",
+        }),
     );
     return () => {
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
   }, [path]);
-  return state && state.path === path ? { url: state.url, failed: state.failed } : { url: null, failed: false };
+  const current = state?.path === path ? state : null;
+  return {
+    url: current?.url ?? null,
+    filename: current?.filename ?? null,
+    contentType: current?.contentType ?? null,
+    error: current?.error ?? null,
+    failed: Boolean(current?.error),
+  };
 }
 
 export function ProtectedFrame({ path, title, className }: { path: string; title: string; className?: string }) {

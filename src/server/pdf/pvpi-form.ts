@@ -154,7 +154,9 @@ export async function generatePvpiPdf(s: CaseSnapshot, options: PdfOptions): Pro
   const cell = (name: string, raw: string | null | undefined, label: string) => {
     if (!raw) return;
     guard(name);
-    const text = clean(raw);
+    // Pasted addresses and medicine names can contain newlines. A single-line
+    // PDF cell must flatten whitespace before the WinAnsi font measures it.
+    const text = clean(raw).replace(/\s+/g, " ").trim();
     const field = form.getTextField(name);
     const { width, height } = rectOf(name);
     let size = 8;
