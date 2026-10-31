@@ -65,6 +65,7 @@ export function EditReportView() {
 
             <CaseForm
               key={d.lockVersion}
+              chatAvailable={d.chatAvailable}
               initialGuided={params.get("mode") === "guided"}
               caseId={id}
               caseNumber={d.caseNumber}

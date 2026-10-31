@@ -19,6 +19,7 @@ import {
   type InvestigationField,
   type SingleField,
 } from "@/lib/domain/extraction";
+import { chatExtractionSchema, CHAT_EXTRA_INSTRUCTIONS } from "@/lib/domain/chat-extraction";
 import { patientInitialsMatch, qualityKey, reviewExtraction } from "@/lib/domain/extraction-quality";
 import { isValidPartialDate } from "@/lib/domain/partial-date";
 import { AiError, AiUnavailableError, generateWithFallback, type AiAttempt } from "@/server/ai/provider";
@@ -118,7 +119,15 @@ function currentValue(c: CaseRow, field: SingleField): string | null {
   return v === null || v === "" ? null : v;
 }
 
-export async function runExtraction(user: CurrentUser, caseId: string, documentId: string): Promise<ExtractionView> {
+export async function runExtraction(
+  user: CurrentUser,
+  caseId: string,
+  documentId: string,
+  options?: {
+    extended?: boolean;
+    page?: { bytes: Uint8Array; pageNumber: number };
+  },
+): Promise<ExtractionView> {
   const { c, access } = await loadCase(user, caseId);
   if (!access.edit)
     throw new WorkflowError("Extraction is only available while the report is being edited.", "FORBIDDEN");
@@ -126,15 +135,18 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
   if (!doc) throw new WorkflowError("Document not found.", "NOT_FOUND");
 
   const startedAt = new Date();
-  const bytes = await readStoredFile(doc.storageKey);
+  const bytes = options?.page?.bytes ?? (await readStoredFile(doc.storageKey));
   let outcome;
   try {
     outcome = await generateWithFallback({
       task: "extract-document",
-      system: EXTRACTION_INSTRUCTIONS,
+      system: EXTRACTION_INSTRUCTIONS + (options?.extended ? CHAT_EXTRA_INSTRUCTIONS : ""),
       prompt: "Read this document and extract what it says.",
-      document: { bytes: new Uint8Array(bytes), mimeType: doc.mimeType as DocumentMimeType },
-      schema: documentExtractionSchema,
+      document: {
+        bytes: new Uint8Array(bytes),
+        mimeType: options?.page ? "image/jpeg" : (doc.mimeType as DocumentMimeType),
+      },
+      schema: options?.extended ? chatExtractionSchema : documentExtractionSchema,
       maxOutputTokens: 16000,
       validateOutput: (output) => {
         if (output.readability === "UNREADABLE")
@@ -174,6 +186,15 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
 
   if (outcome.output.readability === "UNREADABLE")
     throw new WorkflowError("The document could not be read reliably. Upload a clearer copy.");
+  if (options?.page) {
+    const markPage = (value: unknown) => {
+      if (!value || typeof value !== "object") return;
+      if ("sourceText" in value && "value" in value)
+        (value as Record<string, unknown>).sourcePage = options.page!.pageNumber;
+      else Object.values(value).forEach(markPage);
+    };
+    markPage(outcome.output);
+  }
   const { output, issues } = reviewExtraction(outcome.output);
   const run = await db.extractionRun.create({
     data: {
@@ -181,10 +202,12 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
       requestedById: user.id,
       provider: outcome.provider,
       model: outcome.model,
+      sourcePage: options?.page?.pageNumber ?? null,
       status: "SUCCEEDED",
       startedAt,
       completedAt: new Date(),
       rawResponse: {
+        schemaVersion: options?.extended ? "chat-extraction-v1" : "document-extraction-v1",
         output,
         originalOutput: outcome.output,
         qualityIssues: issues,
@@ -233,6 +256,20 @@ export async function runExtraction(user: CurrentUser, caseId: string, documentI
       });
     }
   });
+  const extended = chatExtractionSchema.safeParse(output);
+  if (options?.extended && extended.success) {
+    extended.data.extraFields.forEach((extra) => {
+      if (!extra.reading.value) return;
+      rows.push({
+        runId: run.id,
+        medicationIndex: extra.medicationIndex ?? 0,
+        fieldName: `extra:${extra.entity}:${extra.field}`,
+        proposedValue: extra.reading.value,
+        sourceText: extra.reading.sourceText,
+        uncertain: extra.reading.uncertain || !extra.reading.sourceText,
+      });
+    });
+  }
   if (rows.length)
     await db.extractedItem.createManyAndReturn({
       data: rows,
@@ -330,6 +367,7 @@ export async function getExtraction(user: CurrentUser, caseId: string, runId: st
     medications: [],
   };
   for (const item of run.items) {
+    if (item.fieldName.startsWith("extra:")) continue;
     if (item.fieldName.startsWith(SINGLE_PREFIX)) {
       const field = item.fieldName.slice(SINGLE_PREFIX.length) as SingleField;
       view.singles.push({ field, proposal: proposal(item), current: currentValue(c, field) });
@@ -359,8 +397,13 @@ export async function getExtraction(user: CurrentUser, caseId: string, runId: st
 export async function pendingExtractions(user: CurrentUser, caseId: string) {
   const { access } = await loadCase(user, caseId);
   if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "FORBIDDEN");
+  const jobs = await db.documentExtractionJob.findMany({
+    where: { caseId, runId: { not: null } },
+    select: { runId: true },
+  });
   return db.extractionRun.findMany({
     where: {
+      id: { notIn: jobs.flatMap((job) => (job.runId ? [job.runId] : [])) },
       document: { caseId },
       status: "SUCCEEDED",
       items: { some: { status: "PENDING" }, every: { status: "PENDING" } },

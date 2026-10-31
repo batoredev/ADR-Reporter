@@ -1,7 +1,4 @@
 import "server-only";
-import type { DocumentExtraction } from "@/lib/domain/extraction";
-import type { ConsistencyOutput } from "@/lib/domain/ai-checks";
-import type { NarrativeOutput } from "@/lib/domain/narrative";
 import { AiError, type AiProvider, type AiTask } from "./types";
 
 const none = { sourceText: null, value: null, uncertain: false, approximate: false };
@@ -13,7 +10,8 @@ const read = (value: string, sourceText: string, uncertain = false) => ({
 });
 
 /** Saved replies for the fictional samples, so automated tests never call an AI service. */
-const SAVED: Record<AiTask, DocumentExtraction | NarrativeOutput | ConsistencyOutput | { stepIds: string[] }> = {
+const SAVED: Record<AiTask, unknown> = {
+  chat: { updates: [] },
   guided: { stepIds: ["reaction", "seriousness"] },
   "extract-document": {
     documentType: "PRESCRIPTION",
@@ -56,7 +54,7 @@ const SAVED: Record<AiTask, DocumentExtraction | NarrativeOutput | ConsistencyOu
         expiryDate: none,
       },
     ],
-    documentNotes: "Saved test data for the fictional sample prescription; no AI service was called.",
+    documentNotes: "Fictional sample prescription for demonstration.",
   },
   narrative: {
     narrative:

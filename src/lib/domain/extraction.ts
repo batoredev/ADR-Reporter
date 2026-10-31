@@ -5,10 +5,10 @@
 import { z } from "zod";
 import { AgeUnit, Gender } from "@/generated/prisma/enums";
 
-const extracted = (description: string) =>
+const extracted = (description: string, maxLength = 4000) =>
   z
     .object({
-      sourceText: z.string().nullable().describe("The exact text read from the document, or null."),
+      sourceText: z.string().max(4000).nullable().describe("The exact text read from the document, or null."),
       sourcePage: z
         .number()
         .int()
@@ -16,7 +16,11 @@ const extracted = (description: string) =>
         .nullable()
         .optional()
         .describe("1-based page number of the source text; 1 for an image, null if unknown."),
-      value: z.string().nullable().describe("The value as it should be recorded, or null if it is not written."),
+      value: z
+        .string()
+        .max(maxLength)
+        .nullable()
+        .describe("The value as it should be recorded, or null if it is not written."),
       approximate: z
         .boolean()
         .default(false)
@@ -28,7 +32,7 @@ const extracted = (description: string) =>
     .describe(description);
 
 export const extractedMedicationSchema = z.object({
-  name: extracted("Medicine name (brand or generic) with strength and form as written."),
+  name: extracted("Medicine name (brand or generic) with strength and form as written.", 200),
   dose: extracted("Dose per administration as written, e.g. '500 mg' or '1 tablet'."),
   route: extracted("Route as written, e.g. 'Oral'."),
   frequency: extracted("Frequency as written, e.g. 'TID' or 'twice daily'."),

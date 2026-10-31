@@ -23,9 +23,11 @@
     "dev:api": "tsx watch --conditions=react-server src/server/api/node-server.ts",
     "build:api": "node scripts/build-api.mjs",
     "preview": "node scripts/serve-static.mjs out 3000",
-    "prebuild": "node -e \"require('fs').mkdirSync('public/forms',{recursive:true});require('fs').copyFileSync('docs/reference/ADRRF_2.pdf','public/forms/pvpi-adrrf-v1.4.pdf')\"",
+    "prebuild": "node scripts/prepare-site.mjs",
     "ai:check": "tsx --conditions=react-server scripts/check-ai.ts",
-    "ai:evaluate": "tsx --conditions=react-server scripts/evaluate-extractor.ts"
+    "ai:evaluate": "tsx --conditions=react-server scripts/evaluate-extractor.ts",
+    "chatbot:prepare": "node scripts/prepare-chatbot-deploy.mjs",
+    "ai:chat-check": "tsx --conditions=react-server scripts/check-chat-provider.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.1.0",
@@ -39,6 +41,7 @@
     "lucide-react": "1.61.0",
     "next": "16.4.2",
     "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.4.299",
     "pg": "8.23.1",
     "radix-ui": "^1.8.1",
     "react": "19.3.0",

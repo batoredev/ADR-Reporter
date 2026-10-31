@@ -1,4 +1,6 @@
-# ADR Reporter (prototype)
+# ADR Reporter
+
+The report assistant supports batch uploads and questions for missing details. [Deploy the chatbot update](docs/CHATBOT_SETUP.md) before enabling it on an existing hosted installation. (prototype)
 
 AI-assisted adverse drug reaction (ADR) reporting and institutional verification, aligned with the
 **PvPI Suspected ADR Reporting Form, version 1.4**.

@@ -24,6 +24,7 @@ const eslintConfig = defineConfig([
     // Generated Prisma client and test output:
     "src/generated/**",
     "docs/design/**",
+    "public/pdfjs/**",
     "playwright-report/**",
     "test-results/**",
     // Static site output and the generated Edge Function bundle:

@@ -100,6 +100,7 @@ export interface CaseFormProps {
   /** Rendered at the top of section C (document extraction). */
   extractionSlot?: ReactNode;
   initialGuided?: boolean;
+  chatAvailable?: boolean;
 }
 
 function Section({
@@ -143,6 +144,7 @@ export function CaseForm({
   ai,
   extractionSlot,
   initialGuided = false,
+  chatAvailable = false,
 }: CaseFormProps) {
   const router = useRouter();
   const [guided, setGuided] = useState(initialGuided);
@@ -357,6 +359,21 @@ export function CaseForm({
                       </div>
                     ) : null}
 
+                    {chatAvailable ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            void (async () => {
+                              if (await save()) router.push(pages.caseChat(caseId));
+                            })()
+                          }
+                        >
+                          Continue with report assistant
+                        </Button>
+                      </div>
+                    ) : null}
                     {guided ? (
                       <GuidedReporter
                         caseId={caseId}

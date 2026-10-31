@@ -9,6 +9,9 @@ const port = Number(process.argv[3] ?? 3000);
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".wasm": "application/wasm",
+  ".woff": "font/woff",
   ".css": "text/css",
   ".json": "application/json",
   ".svg": "image/svg+xml",

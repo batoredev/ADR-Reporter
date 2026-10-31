@@ -89,6 +89,7 @@ export async function editView(user: CurrentUser, caseId: string) {
   const lastReturn = d.c.status === "RETURNED" ? d.decisions.filter((x) => x.decision === "RETURN").at(-1) : undefined;
   return {
     editable: true as const,
+    chatAvailable: true,
     caseNumber: d.c.caseNumber,
     status: d.c.status,
     lockVersion: d.c.lockVersion,
@@ -119,6 +120,7 @@ export async function submitView(user: CurrentUser, caseId: string) {
   if (!d.access.edit) return { editable: false as const, caseNumber: d.c.caseNumber };
   return {
     editable: true as const,
+    chatAvailable: true,
     caseNumber: d.c.caseNumber,
     status: d.c.status,
     lockVersion: d.c.lockVersion,

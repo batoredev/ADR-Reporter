@@ -1,5 +1,7 @@
 # Supabase database for ADR Reporter
 
+> The chatbot upgrade adds `007_chat_reporting.sql`. Existing projects should follow [the chatbot deployment guide](../docs/CHATBOT_SETUP.md); the older AI-only update below needed no migration.
+
 This folder sets up the app's PostgreSQL database on [Supabase](https://supabase.com): all tables, the database rules,
 and the fictional demo data. You can do everything on the Supabase website; nothing needs to run on your computer.
 

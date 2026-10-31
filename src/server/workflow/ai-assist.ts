@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { chatState } from "@/lib/domain/report-chat";
 import { aiHistory, type FindingDecision, type SavedNarrative, type SavedCheck } from "@/lib/domain/ai-history";
 import type { Prisma } from "@/generated/prisma/client";
 import { CONSISTENCY_INSTRUCTIONS, consistencySchema } from "@/lib/domain/ai-checks";
@@ -105,23 +106,35 @@ async function documentFacts(caseId: string): Promise<string> {
   const runs = await db.extractionRun.findMany({
     where: { status: "SUCCEEDED", document: { caseId } },
     orderBy: { startedAt: "desc" },
-    take: 40,
+    take: 200,
     include: { document: { select: { id: true, originalName: true } }, items: true },
   });
+  const chat = await db.reportChat.findUnique({ where: { caseId }, select: { state: true } });
+  const skipped = new Set(
+    Object.entries(chatState(chat?.state).decisions)
+      .filter(([, value]) => value === "SKIPPED")
+      .map(([id]) => id),
+  );
+  const pagedDocuments = new Set(runs.filter((run) => run.sourcePage !== null).map((run) => run.documentId));
   const seen = new Set<string>();
   const blocks: string[] = [];
   for (const run of runs) {
-    if (seen.has(run.document.id)) continue;
-    seen.add(run.document.id);
+    if (run.sourcePage === null && pagedDocuments.has(run.documentId)) continue;
+    const key = `${run.documentId}:${run.sourcePage ?? "document"}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const facts = run.items
-      .filter((i) => i.status !== "REJECTED" && i.proposedValue && i.fieldName !== "case:patient.initials")
+      .filter(
+        (i) =>
+          i.status !== "REJECTED" && !skipped.has(i.id) && i.proposedValue && i.fieldName !== "case:patient.initials",
+      )
       .map(
         (i) =>
           `${i.fieldName} [row ${i.medicationIndex + 1}; ${i.status}; ${i.uncertain ? "UNCERTAIN" : "AI reading"}]: ${JSON.stringify(i.finalValue ?? i.proposedValue)}; source text: ${JSON.stringify(i.sourceText)}`,
       );
     if (facts.length)
       blocks.push(
-        `Document ${run.document.id} (${run.document.originalName}), extraction ${run.id}:\n${facts.join("\n")}`,
+        `Document ${run.document.id} (${run.document.originalName})${run.sourcePage ? `, page ${run.sourcePage}` : ""}, extraction ${run.id}:\n${facts.join("\n")}`,
       );
   }
   const all = blocks.join("\n\n");

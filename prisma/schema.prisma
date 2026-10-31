@@ -62,23 +62,24 @@ model User {
   institution Institution @relation(fields: [institutionId], references: [id])
   sessions    Session[]
 
-  reportedCases            AdrCase[]             @relation("CaseReporter")
-  assignedCases            AdrCase[]             @relation("CaseAssignee")
+  reportedCases            AdrCase[]               @relation("CaseReporter")
+  assignedCases            AdrCase[]               @relation("CaseAssignee")
   versionsCreated          CaseVersion[]
-  assignmentsActed         CaseAssignment[]      @relation("AssignmentActor")
-  assignmentsFrom          CaseAssignment[]      @relation("AssignmentFrom")
-  assignmentsTo            CaseAssignment[]      @relation("AssignmentTo")
+  assignmentsActed         CaseAssignment[]        @relation("AssignmentActor")
+  assignmentsFrom          CaseAssignment[]        @relation("AssignmentFrom")
+  assignmentsTo            CaseAssignment[]        @relation("AssignmentTo")
   checklistItems           ReviewChecklistItem[]
-  comments                 ReviewComment[]       @relation("CommentAuthor")
-  commentsResolved         ReviewComment[]       @relation("CommentResolver")
+  comments                 ReviewComment[]         @relation("CommentAuthor")
+  commentsResolved         ReviewComment[]         @relation("CommentResolver")
   decisions                ReviewDecision[]
-  escalationsRaised        UrgentEscalation[]    @relation("EscalationRaisedBy")
-  escalationsAcked         UrgentEscalation[]    @relation("EscalationAckedBy")
-  escalationsClosed        UrgentEscalation[]    @relation("EscalationClosedBy")
-  submissionsRecorded      ExternalSubmission[]  @relation("SubmissionRecordedBy")
-  acknowledgementsRecorded ExternalSubmission[]  @relation("AcknowledgementRecordedBy")
+  escalationsRaised        UrgentEscalation[]      @relation("EscalationRaisedBy")
+  escalationsAcked         UrgentEscalation[]      @relation("EscalationAckedBy")
+  escalationsClosed        UrgentEscalation[]      @relation("EscalationClosedBy")
+  submissionsRecorded      ExternalSubmission[]    @relation("SubmissionRecordedBy")
+  acknowledgementsRecorded ExternalSubmission[]    @relation("AcknowledgementRecordedBy")
   documentsUploaded        UploadedDocument[]
   extractionRuns           ExtractionRun[]
+  extractionJobs           DocumentExtractionJob[]
   extractedItemsDecided    ExtractedItem[]
   provenanceVerified       FieldProvenance[]
   auditLogs                AuditLog[]
@@ -237,6 +238,8 @@ model AdrCase {
   documents           UploadedDocument[]
   provenance          FieldProvenance[]
   auditLogs           AuditLog[]
+  reportChat          ReportChat?
+  extractionJobs      DocumentExtractionJob[]
 
   @@unique([institutionId, caseNumber])
   @@index([institutionId, status])
@@ -546,14 +549,116 @@ model UploadedDocument {
   sizeBytes    Int
   sha256       String
   storageKey   String   @unique
+  pageCount    Int      @default(1)
   createdAt    DateTime @default(now())
 
-  adrCase    AdrCase           @relation(fields: [caseId], references: [id], onDelete: Restrict)
-  uploadedBy User              @relation(fields: [uploadedById], references: [id])
-  runs       ExtractionRun[]
-  provenance FieldProvenance[]
+  adrCase        AdrCase                 @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  uploadedBy     User                    @relation(fields: [uploadedById], references: [id])
+  runs           ExtractionRun[]
+  provenance     FieldProvenance[]
+  extractionJobs DocumentExtractionJob[]
+  pages          DocumentPage[]
 
   @@index([caseId])
+}
+
+model DocumentPage {
+  id         String           @id @default(cuid())
+  documentId String
+  pageNumber Int
+  storageKey String           @unique
+  sha256     String
+  sizeBytes  Int
+  document   UploadedDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@unique([documentId, pageNumber])
+}
+
+// Persistent conversations and independently retryable document jobs.
+// Chat state contains only validated, versioned candidate facts; case fields
+// are changed in a separate, explicitly verified transaction.
+model ReportChat {
+  id         String    @id @default(cuid())
+  caseId     String    @unique
+  revision   Int       @default(0)
+  state      Json      @default("{}")
+  leaseToken String?
+  leaseUntil DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  adrCase  AdrCase             @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  messages ReportChatMessage[]
+  batches  ReportUploadBatch[]
+}
+
+model ReportChatMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  requestId String?
+  role      String
+  content   String
+  status    String   @default("COMPLETE")
+  metadata  Json?
+  provider  String?
+  model     String?
+  createdAt DateTime @default(now())
+
+  chat ReportChat @relation(fields: [chatId], references: [id], onDelete: Restrict)
+
+  @@unique([chatId, requestId, role])
+  @@index([chatId, createdAt])
+}
+
+model DocumentExtractionJob {
+  id            String    @id @default(cuid())
+  caseId        String
+  documentId    String
+  pageNumber    Int       @default(1)
+  requestedById String
+  status        String    @default("QUEUED")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  leaseToken    String?
+  leaseUntil    DateTime?
+  runId         String?
+  errorMessage  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  adrCase     AdrCase                 @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  document    UploadedDocument        @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  requestedBy User                    @relation(fields: [requestedById], references: [id])
+  batchItems  ReportUploadBatchItem[]
+
+  @@unique([documentId, pageNumber])
+  @@index([status, nextAttemptAt])
+  @@index([caseId])
+}
+
+model ReportUploadBatch {
+  id         String   @id @default(cuid())
+  chatId     String
+  requestId  String
+  totalBytes Int
+  manifest   Json
+  createdAt  DateTime @default(now())
+
+  chat  ReportChat              @relation(fields: [chatId], references: [id], onDelete: Restrict)
+  items ReportUploadBatchItem[]
+
+  @@unique([chatId, requestId])
+}
+
+model ReportUploadBatchItem {
+  id      String @id @default(cuid())
+  batchId String
+  jobId   String
+
+  batch ReportUploadBatch     @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  job   DocumentExtractionJob @relation(fields: [jobId], references: [id], onDelete: Restrict)
+
+  @@unique([batchId, jobId])
 }
 
 enum ExtractionStatus {
@@ -567,6 +672,7 @@ model ExtractionRun {
   id            String           @id @default(cuid())
   documentId    String
   requestedById String
+  sourcePage    Int?
   // Which configured provider and model produced the proposal.
   provider      String
   model         String

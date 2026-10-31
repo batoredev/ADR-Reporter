@@ -1,5 +1,7 @@
 # AI implementation and live setup
 
+> Chatbot update (31 October 2026): the new report assistant adds private tables and a queue. Follow [CHATBOT_SETUP.md](CHATBOT_SETUP.md) for its required additive migration and deployment. The existing-feature description below predates that delivery.
+
 Updated 29 October 2026. This document describes the current implementation; the original architecture plan records
 the earlier prototype scope.
 

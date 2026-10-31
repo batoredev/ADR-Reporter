@@ -61,3 +61,6 @@ next-env.d.ts
 
 # Copied from docs/reference at build (npm run build)
 /public/forms/
+
+# PDF reader assets copied from the installed dependency at build time
+/public/pdfjs/

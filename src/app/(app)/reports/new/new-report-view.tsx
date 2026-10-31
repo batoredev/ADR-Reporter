@@ -18,6 +18,8 @@ export function NewReportView() {
   const allowed = useRequireAccess(canReport);
   const router = useRouter();
   const drafts = useApi<DraftsView>(allowed ? "/drafts" : null);
+  const health = useApi<{ features?: { reportChat?: boolean } }>(allowed ? "/health" : null);
+  const assistantReady = health.data?.features?.reportChat === true;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!allowed) return null;
@@ -31,7 +33,9 @@ export function NewReportView() {
       setPending(false);
       return;
     }
-    router.push(`${pages.caseEdit(result.data.id)}${guided ? "&mode=guided" : ""}${documents ? "#section-c" : ""}`);
+    router.push(
+      documents ? pages.caseChat(result.data.id) : `${pages.caseEdit(result.data.id)}${guided ? "&mode=guided" : ""}`,
+    );
   }
 
   return (
@@ -47,19 +51,29 @@ export function NewReportView() {
         <div className="flex items-start gap-4">
           <FileUp className="mt-1 size-8 shrink-0 text-primary" aria-hidden />
           <div>
-            <h2 className="text-xl font-semibold">Start with your documents</h2>
+            <h2 className="text-xl font-semibold">Create a report with the assistant</h2>
             <p className="mt-2 max-w-2xl leading-relaxed text-muted-foreground">
-              Read a prescription, lab report or discharge summary, check the suggestions, then complete the remaining
-              details.
+              Upload related files together, check the suggested details, then answer questions for what is still
+              missing.
             </p>
           </div>
         </div>
         <div className="mt-6 rounded-xl border border-dashed border-primary/30 bg-card/80 p-6 text-center">
           <FileUp className="mx-auto size-8 text-muted-foreground" aria-hidden />
           <p className="mt-3 text-sm text-muted-foreground">Photos, prescriptions and PDFs · up to 10 MB per file</p>
-          <Button className="mt-4" type="button" onClick={() => void start(false, true)} disabled={pending}>
-            Start with a document
+          <Button
+            className="mt-4"
+            type="button"
+            onClick={() => void start(false, true)}
+            disabled={pending || !assistantReady}
+          >
+            Start a conversation
           </Button>
+          {!assistantReady && !health.loading ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              You can use the form or guided reporting while the assistant is being prepared.
+            </p>
+          ) : null}
         </div>
       </section>
 

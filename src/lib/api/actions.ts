@@ -7,6 +7,7 @@ import type { ExtractionView } from "@/server/workflow/extraction";
 import type { ConsistencyResult, NarrativeDraft } from "@/server/workflow/ai-assist";
 import type { AiHistory, FindingDecision } from "@/lib/domain/ai-history";
 import type { GuidedSuggestions } from "@/server/workflow/guided";
+import type { ReportChatView } from "@/server/workflow/report-chat";
 import { ApiError, apiGet, apiSend } from "./client";
 
 async function result<T>(call: Promise<T>): Promise<ActionResult<T>> {
@@ -40,6 +41,16 @@ export const actions = {
   submit: (caseId: string, input: { lockVersion: number; declaration: boolean; responseNote: string }) =>
     post<{ versionNo: number }>(`/cases/${id(caseId)}/submit`, input),
   escalate: (caseId: string, note: string) => post<{ id: string }>(`/cases/${id(caseId)}/escalate`, { note }),
+  startChat: (caseId: string) => post(`/cases/${id(caseId)}/chat/start`),
+  chat: (caseId: string) => result(apiGet<ReportChatView>(`/cases/${id(caseId)}/chat`)),
+  chatMessage: (caseId: string, input: unknown) => post<ReportChatView>(`/cases/${id(caseId)}/chat/messages`, input),
+  chatApply: (caseId: string, input: unknown) => post<ReportChatView>(`/cases/${id(caseId)}/chat/apply`, input),
+  chatUpload: (caseId: string, form: FormData) =>
+    result(apiSend<{ batchId: string }>("POST", `/cases/${id(caseId)}/chat/uploads`, form)),
+  chatPage: (caseId: string, documentId: string, pageNumber: number, form: FormData) =>
+    result(apiSend("POST", `/cases/${id(caseId)}/chat/documents/${id(documentId)}/pages/${pageNumber}`, form)),
+  chatProcess: (caseId: string) => post<{ processed: boolean }>(`/cases/${id(caseId)}/chat/process`),
+  chatRetryJob: (caseId: string, jobId: string) => post(`/cases/${id(caseId)}/chat/jobs/${id(jobId)}/retry`),
 
   uploadDocument: (caseId: string, form: FormData) =>
     result(apiSend<UploadedDocumentView>("POST", `/cases/${id(caseId)}/documents`, form)),

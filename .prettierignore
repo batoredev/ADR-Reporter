@@ -1,4 +1,5 @@
 node_modules
+public/pdfjs/
 .next
 src/generated
 prisma/migrations

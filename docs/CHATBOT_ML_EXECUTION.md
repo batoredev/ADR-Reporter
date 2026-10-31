@@ -49,11 +49,11 @@ User answers: UI first, chatbot second, full ML third. English only. Testing/dem
 - [x] Ask initial questions together.
 - [x] Interface redesign and task-focused copy across all screens.
 - [x] First delivery checks, commit and push.
-- [ ] Chat state, extraction jobs and additive schema migration.
-- [ ] Evidence reconciliation, field validation, question planner and conversation service.
-- [ ] Batch uploads, worker integration and resumable job progress.
-- [ ] Chat/report/files interface.
-- [ ] Second delivery checks, commit and push.
+- [x] Chat state, extraction jobs and additive schema migration.
+- [x] Evidence reconciliation, field validation, question planner and conversation service.
+- [x] Batch uploads, worker integration and resumable job progress.
+- [x] Chat/report/files interface.
+- [x] Second delivery checks, commit and push.
 - [ ] Supervised ML implementation, verification/training, third commit and push.
 
 ## UI delivery validation
@@ -63,3 +63,11 @@ User answers: UI first, chatbot second, full ML third. English only. Testing/dem
 - After simplifying the phone footer, the 4 affected mobile/PDF browser checks passed again.
 - Screenshots checked at 390 px and 1440 px; no horizontal page overflow, and secondary phone actions are in More.
 - No Supabase migration or API deployment is required for this UI delivery. The chatbot schema remains outside this first commit.
+
+## Chatbot delivery progress
+
+- Source-linked conversation, multi-file uploads, per-page PDF preparation, leased extraction jobs, evidence review and shared-form handoff are implemented.
+- Additive Prisma migration `202610310001_chat_reporting` passed on the isolated test database. No hosted database or Supabase deployment was attempted.
+- First 12 new unit/database tests passed. Both new browser tests passed after fixing the static PDF worker asset: multi-page batch to confirmed form rows, and mobile refresh recovery.
+- Deployment preparation generates a public schema-only SQL file and private combined schema/Vault/Cron SQL plus a worker secret, both private files ignored by Git. See `docs/CHATBOT_SETUP.md`.
+- Validation: the full suite passed 105 unit/database tests and 19 browser tests. Three further database tests passed for exhausted worker recovery, extra approximate-date facts and explicit medicine roles; the chatbot unit/database subset now contains 16 checks. The configured live provider passed fictional document and chat smoke checks. Production static export and API bundle builds passed; lint passed without warnings.

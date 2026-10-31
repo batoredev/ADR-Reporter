@@ -10,13 +10,22 @@ export function WorkspaceTabs({
   defaultValue,
   children,
   label = "Workspace sections",
+  value: controlledValue,
+  onValueChange,
 }: {
   tabs: { value: string; label: string }[];
   defaultValue?: string;
   children: ReactNode;
   label?: string;
+  value?: string;
+  onValueChange?: (value: string) => void;
 }) {
-  const [value, setValue] = useState(defaultValue ?? tabs[0]?.value ?? "");
+  const [internalValue, setInternalValue] = useState(defaultValue ?? tabs[0]?.value ?? "");
+  const value = controlledValue ?? internalValue;
+  function setValue(next: string) {
+    setInternalValue(next);
+    onValueChange?.(next);
+  }
   const id = useId();
   return (
     <TabContext value={{ value, id }}>

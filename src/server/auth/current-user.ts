@@ -18,6 +18,11 @@ export async function userForToken(token: string | null): Promise<CurrentUser | 
   if (!token) return null;
   const userId = await sessionUserId(token);
   if (!userId) return null;
+  return activeUserById(userId);
+}
+
+/** Used by durable jobs; permissions and active status are checked again for every run. */
+export async function activeUserById(userId: string): Promise<CurrentUser | null> {
   const user = await db.user.findUnique({
     where: { id: userId },
     select: {

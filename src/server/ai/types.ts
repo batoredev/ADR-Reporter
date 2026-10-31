@@ -4,7 +4,7 @@ import type { z } from "zod";
 export type DocumentMimeType = "image/png" | "image/jpeg" | "application/pdf";
 
 /** Which job a request is for. Recorded with each run; the test provider answers by task. */
-export type AiTask = "extract-document" | "narrative" | "consistency" | "guided";
+export type AiTask = "extract-document" | "narrative" | "consistency" | "guided" | "chat";
 
 export interface GenerateRequest<T> {
   task: AiTask;

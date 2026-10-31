@@ -88,7 +88,7 @@ export async function createDraft(user: CurrentUser): Promise<{ id: string }> {
   });
 }
 
-async function syncRows(tx: Tx, caseId: string, values: CaseFormValues) {
+export async function syncRows(tx: Tx, caseId: string, values: CaseFormValues) {
   const sync = async <Row extends { id?: string }>(
     list: "suspectedMedicines" | "concomitantProducts" | "investigations",
     rows: Row[],

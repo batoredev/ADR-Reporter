@@ -28,6 +28,17 @@ import {
   discardNarrative,
 } from "@/server/workflow/ai-assist";
 import { guidedFollowups, saveGuidedStep } from "@/server/workflow/guided";
+import { getReportChat, sendReportChatMessage, applyReportChatFacts } from "@/server/workflow/report-chat";
+import { UPLOAD_LIMITS } from "@/lib/domain/report-chat";
+import {
+  limitedFormData,
+  uploadChatBatch,
+  uploadPdfPage,
+  processChatJob,
+  retryChatJob,
+  processScheduledChatJob,
+  startReportChatDocuments,
+} from "@/server/workflow/chat-documents";
 import { getReviewQueue, parseQueueFilter } from "@/server/workflow/queue";
 import {
   addComment,
@@ -60,7 +71,7 @@ const clientAddress = (request: Request) =>
 
 /** Every endpoint of the API. Access rules live in the services each one calls. */
 export const routes: Route[] = [
-  { method: "GET", path: "/health", auth: false, handler: async () => ({ ok: true }) },
+  { method: "GET", path: "/health", auth: false, handler: async () => ({ ok: true, features: { reportChat: true } }) },
   { method: "GET", path: "/auth/demo", auth: false, handler: async () => demoAccounts() },
   {
     method: "POST",
@@ -143,6 +154,73 @@ export const routes: Route[] = [
   },
 
   // Documents and AI extraction
+  { method: "GET", path: "/cases/:id/chat", auth: true, handler: ({ user, params }) => getReportChat(user, params.id) },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/start",
+    auth: true,
+    handler: ({ user, params }) => startReportChatDocuments(user, params.id),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/messages",
+    auth: true,
+    handler: async ({ user, params, request }) => sendReportChatMessage(user, params.id, await readJson(request)),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/apply",
+    auth: true,
+    handler: async ({ user, params, request }) => applyReportChatFacts(user, params.id, await readJson(request)),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/process",
+    auth: true,
+    handler: ({ user, params }) => processChatJob(params.id, user),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/jobs/:jobId/retry",
+    auth: true,
+    handler: ({ user, params }) => retryChatJob(user, params.id, params.jobId),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/uploads",
+    auth: true,
+    handler: async ({ user, params, request }) => {
+      const form = await limitedFormData(request, UPLOAD_LIMITS.batchBytes + 1024 * 1024);
+      return uploadChatBatch(
+        user,
+        params.id,
+        String(form.get("requestId") ?? ""),
+        form.getAll("files").filter((f): f is File => f instanceof File),
+      );
+    },
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/documents/:documentId/pages/:pageNumber",
+    auth: true,
+    handler: async ({ user, params, request }) => {
+      const form = await limitedFormData(request, 2 * 1024 * 1024 + 65536),
+        file = form.get("file");
+      return uploadPdfPage(
+        user,
+        params.id,
+        params.documentId,
+        Number(params.pageNumber),
+        file instanceof File ? file : null,
+      );
+    },
+  },
+  {
+    method: "POST",
+    path: "/internal/chat-jobs/process",
+    auth: false,
+    handler: ({ request }) => processScheduledChatJob(request),
+  },
   {
     method: "GET",
     path: "/cases/:id/extractions",
