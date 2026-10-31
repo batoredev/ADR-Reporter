@@ -1,0 +1,139 @@
+{
+  "method": "Built-in image_gen",
+  "purpose": "UI design previews only",
+  "pages": [
+    {
+      "id": "01-login",
+      "title": "Sign in",
+      "group": "Account",
+      "route": "/login",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-cfe421d1-8320-4800-aab6-4b29aae85215.png"
+    },
+    {
+      "id": "02-reporter-dashboard",
+      "title": "Reporter overview",
+      "group": "Reporter",
+      "route": "/dashboard",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-3b6c7ff4-1ca2-4124-ac9d-fe9789a30176.png"
+    },
+    {
+      "id": "03-new-report",
+      "title": "Start a report",
+      "group": "Reporter",
+      "route": "/reports/new",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-3b736359-39fb-4420-a9a1-2f17deeff28c.png"
+    },
+    {
+      "id": "04-chatbot-report",
+      "title": "Chatbot report workspace",
+      "group": "Reporter",
+      "route": "Proposed chatbot reporting mode",
+      "sourcePath": "C:/Users/sriva/.codex/generated_images/01a18739-d085-73e0-bb12-c229868d1303/exec-06f6679d-32f7-4c28-83c5-c02d297efc87.png"
+    },
+    {
+      "id": "05-structured-report",
+      "title": "Structured report editor",
+      "group": "Reporter",
+      "route": "/reports/edit",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-cce85beb-34b1-4569-8850-4853c88ff3f8.png"
+    },
+    {
+      "id": "06-guided-report",
+      "title": "Guided reporting",
+      "group": "Reporter",
+      "route": "/reports/edit?guided=1",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-c7ad39ba-61b1-4da3-b281-926ac3a43d91.png"
+    },
+    {
+      "id": "07-my-reports",
+      "title": "My reports",
+      "group": "Reporter",
+      "route": "/my-reports",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-fe641b90-f781-49d8-bb2b-9c5566a0cd60.png"
+    },
+    {
+      "id": "08-report-details",
+      "title": "Report details and history",
+      "group": "Reporter",
+      "route": "/reports/view",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-d7276707-5038-4f04-b140-cbb199f3ebad.png"
+    },
+    {
+      "id": "09-review-submit",
+      "title": "Review and submit",
+      "group": "Reporter",
+      "route": "/reports/submit",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-f3d43088-a537-4358-b193-5966a5785fe3.png"
+    },
+    {
+      "id": "10-reviewer-dashboard",
+      "title": "Reviewer overview",
+      "group": "Reviewer",
+      "route": "/dashboard",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-e30c153a-41b1-43ac-b5b3-b4fed2fcdef4.png"
+    },
+    {
+      "id": "11-review-queue",
+      "title": "Shared review queue",
+      "group": "Reviewer",
+      "route": "/review",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-a0460252-0002-4a41-be1f-29a0d3245097.png"
+    },
+    {
+      "id": "12-review-workspace",
+      "title": "Institutional review workspace",
+      "group": "Reviewer",
+      "route": "/review/case",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-71cc8833-c18c-4076-a347-39ca0bb2d220.png"
+    },
+    {
+      "id": "13-urgent-escalations",
+      "title": "Urgent escalation handling",
+      "group": "Reviewer",
+      "route": "/escalations",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-38e30e5c-cc4b-4e7e-bbed-09ea8d350811.png"
+    },
+    {
+      "id": "14-external-submissions",
+      "title": "External submission tracking",
+      "group": "Coordinator",
+      "route": "/submissions",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-846c29c5-ddde-409c-ad77-49c0d2d59f40.png"
+    },
+    {
+      "id": "15-profile",
+      "title": "Profile and reporter details",
+      "group": "Account",
+      "route": "/profile",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-acc0c639-f0cb-43e9-9982-e70d27f8cb3d.png"
+    },
+    {
+      "id": "16-document-viewer",
+      "title": "Document and PDF viewer",
+      "group": "Reporter",
+      "route": "/files/view",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-bd0be669-5de0-4968-844b-a87bb82ad596.png"
+    },
+    {
+      "id": "17-access-denied",
+      "title": "Access denied",
+      "group": "System",
+      "route": "/access-denied",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-82cc2f7c-6627-4a1f-91ab-21e32d8f0a8d.png"
+    },
+    {
+      "id": "18-not-found",
+      "title": "Page not found",
+      "group": "System",
+      "route": "/404",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-7a08b7e7-5dbf-43e2-ad99-7d2112395993.png"
+    },
+    {
+      "id": "19-mobile-chatbot",
+      "title": "Mobile chatbot workspace",
+      "group": "Mobile",
+      "route": "/reports/edit — mobile",
+      "sourcePath": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-5beab84f-57a8-4d8e-b232-cb7c263c5695.png"
+    }
+  ]
+}

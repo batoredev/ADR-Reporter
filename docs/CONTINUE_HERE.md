@@ -120,7 +120,7 @@ Local preparation on the original computer: Python 3.12.2, RTX 3050 Laptop GPU w
 
 Meaningful release work needs varied fictional/de-identified uploads, explicit training/evaluation permission, document-only transcription/labels and a second independent reviewer. Keep patient/case/duplicate sources in one split, seal test labels from the trainer, compare against the existing extractor, and reject synthetic-only pilots for application promotion. The provisional engineering gates are not clinical validation standards. Real clinical use would require a separate review once the user requests it.
 
-Other local state: `docs/design/` contains the earlier large design previews, is untracked, and was deliberately left alone. Do not delete it or accidentally include it in a code commit. `.env`, `supabase/.env.*`, `.venv-ml`, `ml/artifacts`, `ml/data`, `ml/runs`, `storage` and test output are private/ignored; never commit their contents.
+Design references: `docs/design/` now contains the pushed original 19 concept images, gallery, prompt records and ZIP archive, added after the user explicitly requested all remaining Git changes. These are historical mockups from before implementation; the delivered application is described above. `.env`, `supabase/.env.*`, `.venv-ml`, `ml/artifacts`, `ml/data`, `ml/runs`, `storage` and test output are private/ignored; never commit their contents.
 
 ## Suggested continuation request
 

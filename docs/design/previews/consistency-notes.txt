@@ -1,0 +1,7 @@
+All screenshots are visual design concepts containing fictional sample data.
+Report states: Draft, Submitted, Under review, Returned for correction, Resubmitted, Approved, Externally submitted, Acknowledged.
+Sample dates: October 2026.
+The chatbot is a proposed new feature.
+Approval, submission and acknowledgement remain human actions.
+The UI previews were generated with the built-in image_gen tool.
+No application UI implementation is included.

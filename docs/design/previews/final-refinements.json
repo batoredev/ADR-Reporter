@@ -1,0 +1,12 @@
+[
+  {
+    "id": "11-review-queue",
+    "path": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-a0460252-0002-4a41-be1f-29a0d3245097.png",
+    "prompt": "Make one focused correction to this ADR Reporter review-queue UI screenshot. Preserve every layout, label, sidebar, table row and action button. In the top filter tab row, make 'All active 8' the selected blue underlined tab, and make 'Assigned to me 3' a normal unselected neutral tab. This is because the visible table contains both assigned and unassigned reports. The unassigned count 5 remains unchanged. Do not change anything else."
+  },
+  {
+    "id": "16-document-viewer",
+    "path": "C:\\Users\\sriva\\.codex\\generated_images\\01a18739-d085-73e0-bb12-c229868d1303\\exec-bd0be669-5de0-4968-844b-a87bb82ad596.png",
+    "prompt": "Edit image 1, the ADR Reporter document-viewer UI. Image 2 is the actual official PvPI version 1.4 blank form and is the exact document reference to display. Preserve the entire blue-white app shell, sidebar, breadcrumb, file title, draft badge, Back to report, Download PDF, charcoal toolbar and thumbnails from image 1. Change only the white document content inside the viewer: replace the invented reformatted document with the actual red-and-black official form shown in image 2, including its official two-column layout and Version 1.4 label. Show its upper section realistically at the current zoom, allowing the bottom to continue below the visible viewer area. The document may remain blank for this preview, with a subtle DRAFT watermark. All registration identifiers, hospital numbers, AMC/NCC numbers, signatures and causality cells must remain empty. Do not invent form version 1.0 or add any made-up patient identifiers. Do not redesign the official document; show reference image 2 within the existing PDF viewport."
+  }
+]
