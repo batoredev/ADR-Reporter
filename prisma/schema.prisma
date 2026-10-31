@@ -28,9 +28,12 @@ model Institution {
   urgentAckTargetMinutes Int?
   createdAt              DateTime @default(now())
 
-  users     User[]
-  cases     AdrCase[]
-  auditLogs AuditLog[]
+  users                User[]
+  cases                AdrCase[]
+  auditLogs            AuditLog[]
+  datasets             ExtractionDatasetVersion[]
+  trainingRuns         ExtractionTrainingRun[]
+  extractionDeployment ExtractionDeployment?
 }
 
 enum Role {
@@ -62,27 +65,34 @@ model User {
   institution Institution @relation(fields: [institutionId], references: [id])
   sessions    Session[]
 
-  reportedCases            AdrCase[]               @relation("CaseReporter")
-  assignedCases            AdrCase[]               @relation("CaseAssignee")
+  reportedCases            AdrCase[]                    @relation("CaseReporter")
+  assignedCases            AdrCase[]                    @relation("CaseAssignee")
   versionsCreated          CaseVersion[]
-  assignmentsActed         CaseAssignment[]        @relation("AssignmentActor")
-  assignmentsFrom          CaseAssignment[]        @relation("AssignmentFrom")
-  assignmentsTo            CaseAssignment[]        @relation("AssignmentTo")
+  assignmentsActed         CaseAssignment[]             @relation("AssignmentActor")
+  assignmentsFrom          CaseAssignment[]             @relation("AssignmentFrom")
+  assignmentsTo            CaseAssignment[]             @relation("AssignmentTo")
   checklistItems           ReviewChecklistItem[]
-  comments                 ReviewComment[]         @relation("CommentAuthor")
-  commentsResolved         ReviewComment[]         @relation("CommentResolver")
+  comments                 ReviewComment[]              @relation("CommentAuthor")
+  commentsResolved         ReviewComment[]              @relation("CommentResolver")
   decisions                ReviewDecision[]
-  escalationsRaised        UrgentEscalation[]      @relation("EscalationRaisedBy")
-  escalationsAcked         UrgentEscalation[]      @relation("EscalationAckedBy")
-  escalationsClosed        UrgentEscalation[]      @relation("EscalationClosedBy")
-  submissionsRecorded      ExternalSubmission[]    @relation("SubmissionRecordedBy")
-  acknowledgementsRecorded ExternalSubmission[]    @relation("AcknowledgementRecordedBy")
+  escalationsRaised        UrgentEscalation[]           @relation("EscalationRaisedBy")
+  escalationsAcked         UrgentEscalation[]           @relation("EscalationAckedBy")
+  escalationsClosed        UrgentEscalation[]           @relation("EscalationClosedBy")
+  submissionsRecorded      ExternalSubmission[]         @relation("SubmissionRecordedBy")
+  acknowledgementsRecorded ExternalSubmission[]         @relation("AcknowledgementRecordedBy")
   documentsUploaded        UploadedDocument[]
   extractionRuns           ExtractionRun[]
   extractionJobs           DocumentExtractionJob[]
   extractedItemsDecided    ExtractedItem[]
   provenanceVerified       FieldProvenance[]
   auditLogs                AuditLog[]
+  trainingPermissions      DocumentTrainingPermission[]
+  documentLabels           DocumentLabelRevision[]
+  documentLabelReviews     DocumentLabelReview[]
+  datasetsCreated          ExtractionDatasetVersion[]
+  trainingRunsCreated      ExtractionTrainingRun[]
+  modelsCreated            ExtractionModelVersion[]
+  deploymentsUpdated       ExtractionDeployment[]
 
   @@index([institutionId])
 }
@@ -552,12 +562,15 @@ model UploadedDocument {
   pageCount    Int      @default(1)
   createdAt    DateTime @default(now())
 
-  adrCase        AdrCase                 @relation(fields: [caseId], references: [id], onDelete: Restrict)
-  uploadedBy     User                    @relation(fields: [uploadedById], references: [id])
-  runs           ExtractionRun[]
-  provenance     FieldProvenance[]
-  extractionJobs DocumentExtractionJob[]
-  pages          DocumentPage[]
+  adrCase            AdrCase                     @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  uploadedBy         User                        @relation(fields: [uploadedById], references: [id])
+  runs               ExtractionRun[]
+  provenance         FieldProvenance[]
+  extractionJobs     DocumentExtractionJob[]
+  pages              DocumentPage[]
+  trainingPermission DocumentTrainingPermission?
+  labelRevisions     DocumentLabelRevision[]
+  datasetSamples     ExtractionDatasetSample[]
 
   @@index([caseId])
 }
@@ -776,4 +789,129 @@ model StoredFile {
   sha256    String
   bytes     Bytes
   createdAt DateTime @default(now())
+}
+
+// Supervised document learning. Clinical report edits are suggestions, never training labels by themselves.
+model DocumentTrainingPermission {
+  id                   String           @id @default(cuid())
+  documentId           String           @unique
+  groupKey             String
+  fictional            Boolean
+  deidentified         Boolean
+  allowedForTraining   Boolean          @default(false)
+  allowedForEvaluation Boolean          @default(false)
+  reason               String
+  grantedById          String
+  revokedAt            DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  document             UploadedDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  grantedBy            User             @relation(fields: [grantedById], references: [id], onDelete: Restrict)
+}
+
+model DocumentLabelRevision {
+  id                   String                    @id @default(cuid())
+  documentId           String
+  pageNumber           Int
+  revision             Int
+  labelledById         String
+  transcription        String
+  labels               Json
+  reasons              Json
+  schemaVersion        String                    @default("chat-extraction-v1")
+  completePageReviewed Boolean
+  createdAt            DateTime                  @default(now())
+  document             UploadedDocument          @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  review               DocumentLabelReview?
+  samples              ExtractionDatasetSample[]
+  labelledBy           User                      @relation(fields: [labelledById], references: [id], onDelete: Restrict)
+
+  @@unique([documentId, pageNumber, revision])
+}
+
+model DocumentLabelReview {
+  id              String                @id @default(cuid())
+  labelRevisionId String                @unique
+  reviewedById    String
+  decision        String
+  notes           String
+  createdAt       DateTime              @default(now())
+  labelRevision   DocumentLabelRevision @relation(fields: [labelRevisionId], references: [id], onDelete: Restrict)
+  reviewedBy      User                  @relation(fields: [reviewedById], references: [id], onDelete: Restrict)
+}
+
+model ExtractionDatasetVersion {
+  id            String                    @id @default(cuid())
+  institutionId String
+  createdById   String
+  name          String
+  sha256        String
+  manifest      Json
+  createdAt     DateTime                  @default(now())
+  samples       ExtractionDatasetSample[]
+  runs          ExtractionTrainingRun[]
+  institution   Institution               @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  createdBy     User                      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([institutionId, sha256])
+}
+
+model ExtractionDatasetSample {
+  id               String                   @id @default(cuid())
+  datasetVersionId String
+  labelRevisionId  String
+  documentId       String
+  split            String
+  groupKey         String
+  sourceSha256     String
+  originalSha256   String
+  pageStorageKey   String
+  datasetVersion   ExtractionDatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
+  labelRevision    DocumentLabelRevision    @relation(fields: [labelRevisionId], references: [id], onDelete: Restrict)
+  document         UploadedDocument         @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@unique([datasetVersionId, labelRevisionId])
+}
+
+model ExtractionTrainingRun {
+  id               String                   @id @default(cuid())
+  institutionId    String
+  datasetVersionId String
+  createdById      String
+  status           String                   @default("RUNNING")
+  config           Json
+  receipt          Json?
+  createdAt        DateTime                 @default(now())
+  completedAt      DateTime?
+  datasetVersion   ExtractionDatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Restrict)
+  versions         ExtractionModelVersion[]
+  institution      Institution              @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  createdBy        User                     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+}
+
+model ExtractionModelVersion {
+  id            String                 @id @default(cuid())
+  trainingRunId String
+  weightsSha256 String
+  baseModel     String
+  baseRevision  String
+  manifest      Json
+  evaluation    Json
+  gatePassed    Boolean
+  createdById   String
+  createdAt     DateTime               @default(now())
+  trainingRun   ExtractionTrainingRun  @relation(fields: [trainingRunId], references: [id], onDelete: Restrict)
+  deployments   ExtractionDeployment[]
+  createdBy     User                   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+}
+
+model ExtractionDeployment {
+  institutionId        String                  @id
+  activeModelVersionId String?
+  revision             Int                     @default(0)
+  updatedById          String
+  updatedAt            DateTime                @updatedAt
+  activeModelVersion   ExtractionModelVersion? @relation(fields: [activeModelVersionId], references: [id], onDelete: Restrict)
+  institution          Institution             @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  updatedBy            User                    @relation(fields: [updatedById], references: [id], onDelete: Restrict)
 }

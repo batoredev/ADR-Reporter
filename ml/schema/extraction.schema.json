@@ -1,0 +1,1691 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "documentType": {
+      "type": "string",
+      "enum": [
+        "PRESCRIPTION",
+        "LAB_REPORT",
+        "DISCHARGE_SUMMARY",
+        "CLINICAL_NOTE",
+        "OTHER"
+      ],
+      "description": "What kind of document this is."
+    },
+    "readability": {
+      "default": "PARTIAL",
+      "description": "Whether the document is readable. UNREADABLE means no clinical value can be reliably read.",
+      "type": "string",
+      "enum": [
+        "CLEAR",
+        "PARTIAL",
+        "UNREADABLE"
+      ]
+    },
+    "patient": {
+      "type": "object",
+      "properties": {
+        "initials": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "Patient initials only, e.g. 'R.K.'. Never copy a full name: if only the name is written, give its initials as value and null as sourceText."
+        },
+        "age": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "Age as a whole number, digits only, e.g. '58'."
+        },
+        "ageUnit": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "Unit of the age: YEARS, MONTHS, WEEKS or DAYS."
+        },
+        "gender": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "MALE, FEMALE or OTHER, only if written."
+        },
+        "weightKg": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "Body weight in kilograms, digits only, e.g. '62' or '62.5'. Only if written in kg."
+        }
+      },
+      "required": [
+        "initials",
+        "age",
+        "ageUnit",
+        "gender",
+        "weightKg"
+      ],
+      "additionalProperties": false
+    },
+    "reaction": {
+      "type": "object",
+      "properties": {
+        "terms": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "The suspected adverse reaction(s) as named in the document, e.g. 'Maculopapular rash'. Null if no reaction is described."
+        },
+        "startDate": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "Date the reaction started: ISO YYYY-MM-DD, or YYYY-MM / YYYY if partly written."
+        },
+        "stopDate": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "Date the reaction stopped or resolved: ISO YYYY-MM-DD, or YYYY-MM / YYYY."
+        },
+        "description": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "What happened, in the document's own words: symptoms, timing and course. No interpretation."
+        },
+        "management": {
+          "type": "object",
+          "properties": {
+            "sourceText": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The exact text read from the document, or null."
+            },
+            "sourcePage": {
+              "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value as it should be recorded, or null if it is not written."
+            },
+            "approximate": {
+              "default": false,
+              "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+              "type": "boolean"
+            },
+            "uncertain": {
+              "type": "boolean",
+              "description": "True if the writing is unclear or you are not sure of the reading."
+            }
+          },
+          "required": [
+            "sourceText",
+            "value",
+            "approximate",
+            "uncertain"
+          ],
+          "additionalProperties": false,
+          "description": "How the reaction was treated or managed, as written."
+        }
+      },
+      "required": [
+        "terms",
+        "startDate",
+        "stopDate",
+        "description",
+        "management"
+      ],
+      "additionalProperties": false
+    },
+    "medicalHistory": {
+      "type": "object",
+      "properties": {
+        "sourceText": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4000
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The exact text read from the document, or null."
+        },
+        "sourcePage": {
+          "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4000
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The value as it should be recorded, or null if it is not written."
+        },
+        "approximate": {
+          "default": false,
+          "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+          "type": "boolean"
+        },
+        "uncertain": {
+          "type": "boolean",
+          "description": "True if the writing is unclear or you are not sure of the reading."
+        }
+      },
+      "required": [
+        "sourceText",
+        "value",
+        "approximate",
+        "uncertain"
+      ],
+      "additionalProperties": false,
+      "description": "Relevant medical or medication history as written: conditions, allergies, pregnancy, liver or kidney problems."
+    },
+    "investigations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "testName": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Test name as written, e.g. 'Serum creatinine'."
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Result with units, and the reference range if printed, e.g. '2.1 mg/dL (ref 0.6-1.2)'."
+          },
+          "date": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Date of the test or sample: ISO YYYY-MM-DD, or YYYY-MM / YYYY if partly written."
+          }
+        },
+        "required": [
+          "testName",
+          "result",
+          "date"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Every test or investigation result on the document."
+    },
+    "medications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Medicine name (brand or generic) with strength and form as written."
+          },
+          "dose": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Dose per administration as written, e.g. '500 mg' or '1 tablet'."
+          },
+          "route": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Route as written, e.g. 'Oral'."
+          },
+          "frequency": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Frequency as written, e.g. 'TID' or 'twice daily'."
+          },
+          "startDate": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Start date only if written: ISO YYYY-MM-DD, or YYYY-MM / YYYY if partly written."
+          },
+          "stopDate": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Stop date only if explicitly written; never calculate it from duration. ISO partial date allowed."
+          },
+          "duration": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Duration as written, e.g. '5 days'. Informational only."
+          },
+          "indication": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Indication or diagnosis written for this medicine."
+          },
+          "manufacturer": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Manufacturer, only if written."
+          },
+          "batchLot": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Batch or lot number, only if written."
+          },
+          "expiryDate": {
+            "type": "object",
+            "properties": {
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The exact text read from the document, or null."
+              },
+              "sourcePage": {
+                "description": "1-based page number of the source text; 1 for an image, null if unknown.",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The value as it should be recorded, or null if it is not written."
+              },
+              "approximate": {
+                "default": false,
+                "description": "For dates only: true if the document explicitly says about or approximately. Partial dates alone are not approximate.",
+                "type": "boolean"
+              },
+              "uncertain": {
+                "type": "boolean",
+                "description": "True if the writing is unclear or you are not sure of the reading."
+              }
+            },
+            "required": [
+              "sourceText",
+              "value",
+              "approximate",
+              "uncertain"
+            ],
+            "additionalProperties": false,
+            "description": "Expiry date, only if written: ISO YYYY-MM-DD or YYYY-MM."
+          }
+        },
+        "required": [
+          "name",
+          "dose",
+          "route",
+          "frequency",
+          "startDate",
+          "stopDate",
+          "duration",
+          "indication",
+          "manufacturer",
+          "batchLot",
+          "expiryDate"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Every medicine prescribed, given or mentioned as taken."
+    },
+    "documentNotes": {
+      "description": "Anything the reporter should know, e.g. 'handwriting partly illegible'. Null if nothing.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "extraFields": {
+      "default": [],
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entity": {
+            "type": "string",
+            "enum": [
+              "case",
+              "medicine"
+            ]
+          },
+          "medicationIndex": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 19
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "dateOfBirth",
+              "reactionOngoing",
+              "seriousAnswer",
+              "seriousnessCriteria",
+              "deathDate",
+              "outcome",
+              "historyFlags",
+              "additionalInformation",
+              "ongoing",
+              "actionTaken",
+              "rechallenge",
+              "rechallengeDose"
+            ]
+          },
+          "reading": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sourceText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "uncertain": {
+                "type": "boolean"
+              },
+              "approximate": {
+                "default": false,
+                "type": "boolean"
+              },
+              "sourcePage": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "value",
+              "sourceText",
+              "uncertain",
+              "approximate"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "entity",
+          "medicationIndex",
+          "field",
+          "reading"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "documentType",
+    "readability",
+    "patient",
+    "reaction",
+    "medicalHistory",
+    "investigations",
+    "medications",
+    "documentNotes",
+    "extraFields"
+  ],
+  "additionalProperties": false
+}
