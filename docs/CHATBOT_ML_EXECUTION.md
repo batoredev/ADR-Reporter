@@ -2,6 +2,8 @@
 
 Requested 31 October 2026. The approved visual direction is recorded in the local design preview gallery.
 
+**Checkpoint:** UI (`911273b`) and chatbot (`2023f3e`) are complete and pushed. The user subsequently asked to finish the chatbot and wrap up for now. ML work is stopped at an unfinished draft saved on `wip/supervised-extraction-pipeline`; it is not deployed or the completed third delivery. Start with [CONTINUE_HERE.md](CONTINUE_HERE.md) for the handoff, remaining work, constraints and user-run deployment steps.
+
 ## Delivery sequence
 
 1. Complete and verify the approved interface redesign, then commit and push the UI first. Remove model/provider names, fallback chains, pricing switches and backend explanations from all user-facing screens. Use plain task labels, while retaining document evidence, verification decisions and useful failure messages.
@@ -39,7 +41,7 @@ User answers: UI first, chatbot second, full ML third. English only. Testing/dem
 ## Initial environment findings
 
 - Existing site: static Next.js export on Cloudflare Pages; authenticated Supabase Edge Function API; Prisma/PostgreSQL.
-- GPU detected: NVIDIA GeForce RTX 3050 Laptop GPU, approximately 4 GB VRAM. PyTorch/Transformers/TRL/PEFT are not installed in the existing Python environment.
+- GPU detected: NVIDIA GeForce RTX 3050 Laptop GPU, approximately 4 GB VRAM. The initial environment had no training stack. An ignored local `.venv-ml` now has CUDA PyTorch, Transformers and PEFT; the pinned public base checkpoint is downloaded. No supervised training has run.
 - Supabase CLI project listing returned `Invalid access token`; the user was asked to sign in locally or choose prepared deployment commands.
 - Existing image extraction has limited fictional sample coverage. It is not a labelled training corpus for broad extraction learning.
 
@@ -54,7 +56,10 @@ User answers: UI first, chatbot second, full ML third. English only. Testing/dem
 - [x] Batch uploads, worker integration and resumable job progress.
 - [x] Chat/report/files interface.
 - [x] Second delivery checks, commit and push.
+- [x] Prepare user-run Supabase schema, secrets and scheduled-worker deployment commands.
+- [x] Preserve the execution plan, completion evidence and unfinished ML draft for future agents.
 - [ ] Supervised ML implementation, verification/training, third commit and push.
+- [ ] User activates the chatbot on hosted Supabase following `docs/CHATBOT_SETUP.md`.
 
 ## UI delivery validation
 

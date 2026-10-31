@@ -25,6 +25,10 @@ const eslintConfig = defineConfig([
     "src/generated/**",
     "docs/design/**",
     "public/pdfjs/**",
+    ".venv-ml/**",
+    "ml/data/**",
+    "ml/runs/**",
+    "ml/artifacts/**",
     "playwright-report/**",
     "test-results/**",
     // Static site output and the generated Edge Function bundle:

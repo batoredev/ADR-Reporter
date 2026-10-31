@@ -64,3 +64,9 @@ next-env.d.ts
 
 # PDF reader assets copied from the installed dependency at build time
 /public/pdfjs/
+
+# Local supervised-learning environment, datasets, checkpoints and receipts
+/.venv-ml/
+/ml/data/
+/ml/runs/
+/ml/artifacts/

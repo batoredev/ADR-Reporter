@@ -1,5 +1,9 @@
 node_modules
 public/pdfjs/
+.venv-ml/
+ml/data/
+ml/runs/
+ml/artifacts/
 .next
 src/generated
 prisma/migrations
