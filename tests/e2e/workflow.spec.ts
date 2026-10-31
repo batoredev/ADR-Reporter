@@ -10,12 +10,14 @@ const caseIdFrom = (page: Page) => new URL(page.url()).searchParams.get("id") ??
 async function signIn(browser: Browser, baseURL: string, name: string): Promise<Page> {
   const page = await (await browser.newContext({ baseURL })).newPage();
   await page.goto("/login");
+  await page.getByText("Try a demo account", { exact: true }).click();
   await page.getByRole("button", { name: new RegExp(name) }).click();
   await page.waitForURL("**/dashboard");
   return page;
 }
 
 async function verifyChecklist(page: Page, exception?: string) {
+  await page.getByRole("tab", { name: /^Checklist/ }).click();
   const items = page.locator("[data-checklist-item]");
   const count = await items.count();
   for (let i = 0; i < count; i++) {
@@ -47,12 +49,14 @@ test("a report goes from AI-assisted entry through review, approval and external
     caseId = caseIdFrom(reporter);
     await reporter.getByLabel("1. Patient initials").fill("E.T.");
     await reporter.getByLabel("2. Age at onset").fill("52");
+    await reporter.getByRole("button", { name: "2 Reaction", exact: true }).click();
     await reporter.getByLabel("Reaction term(s)").fill("Maculopapular rash");
     await reporter.locator("#field-reactionStartDate").fill("2026-10-20");
 
+    await reporter.getByRole("button", { name: "3 Medicines", exact: true }).click();
     await reporter.getByLabel("Document file").setInputFiles("samples/prescriptions/fictional-prescription-clean.png");
     await reporter.getByRole("button", { name: "Upload" }).click();
-    await reporter.getByRole("button", { name: "Read with AI" }).first().click();
+    await reporter.getByRole("button", { name: "Read document" }).first().click();
     await expect(reporter.getByText("Check every suggestion against the document")).toBeVisible();
     await reporter.getByRole("radio", { name: "Add as suspected medicine" }).first().check();
     await reporter.getByRole("radio", { name: "Add as concomitant product" }).nth(1).check();
@@ -89,6 +93,7 @@ test("a report goes from AI-assisted entry through review, approval and external
     // Values read from the prescription show their source.
     await expect(reviewer.getByText(/From fictional-prescription-clean\.png/).first()).toBeVisible();
 
+    await reviewer.getByRole("tab", { name: /^Comments and issues/ }).click();
     const field = reviewer.locator("#comment-field");
     const batch = (await field.locator("option").allInnerTexts()).find((o) => /\(i\): Batch/.test(o))!;
     await field.selectOption({ label: batch });
@@ -109,6 +114,7 @@ test("a report goes from AI-assisted entry through review, approval and external
   await test.step("the reporter corrects the report and resubmits it", async () => {
     await reporter.goto(`/reports/edit?id=${caseId}`);
     await expect(reporter.getByText("Please add the batch number from the strip.").first()).toBeVisible();
+    await reporter.getByRole("button", { name: "3 Medicines", exact: true }).click();
     await reporter.locator('input[name="suspectedMedicines.0.batchLot"]').fill("AMX2610B");
     await expect(reporter.getByText(/Saved at/)).toBeVisible({ timeout: 10_000 });
     await reporter.goto(`/reports/submit?id=${caseId}`);
@@ -124,6 +130,7 @@ test("a report goes from AI-assisted entry through review, approval and external
     await reviewer.waitForURL(`**/review/case?id=${caseId}`);
     await expect(reviewer.locator('[data-path$=".batchLot"]').getByText("Changed in this version")).toBeVisible();
 
+    await reviewer.getByRole("tab", { name: /^Comments and issues/ }).click();
     await reviewer.getByRole("button", { name: "Close issue" }).click();
     await reviewer.getByLabel("Note or reason").fill("Batch number now provided.");
     await reviewer.getByRole("dialog").getByRole("button", { name: "Close issue" }).click();
@@ -154,6 +161,7 @@ test("a report goes from AI-assisted entry through review, approval and external
     await dialog.getByLabel("Sent to").fill("AMC, Demo Medical College (fictional)");
     await dialog.getByRole("button", { name: "Record submission" }).click();
 
+    await coordinator.getByRole("tab", { name: /^Awaiting acknowledgement/ }).click();
     const submitted = coordinator.locator("section[aria-labelledby=submitted] li").filter({ hasText: caseNumber });
     await submitted.getByRole("button", { name: "Record acknowledgement" }).click();
     await coordinator
@@ -181,6 +189,7 @@ test("a potentially serious draft reaches the urgent contacts before any review"
   await physician.waitForURL(/\/reports\/edit\?id=/);
   const caseId = caseIdFrom(physician);
   await physician.getByLabel("1. Patient initials").fill("K.P.");
+  await physician.getByRole("button", { name: "2 Reaction", exact: true }).click();
   await physician.getByLabel("Reaction term(s)").fill("Suspected anaphylaxis");
   await physician.getByRole("checkbox", { name: /Hospitalisation/ }).check();
   await physician.getByRole("checkbox", { name: /Life threatening/ }).check();

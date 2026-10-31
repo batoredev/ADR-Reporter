@@ -6,6 +6,7 @@ const API_URL = "http://localhost:8100/api";
 
 async function newDraft(page: Page) {
   await page.goto("/login");
+  await page.getByText("Try a demo account", { exact: true }).click();
   await page.getByRole("button", { name: /Demo Clinical Pharmacist/ }).click();
   await page.waitForURL("**/dashboard");
   await page.goto("/reports/new");

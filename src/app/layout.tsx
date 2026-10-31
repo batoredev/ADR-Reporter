@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     template: "%s · ADR Reporter",
     default: "ADR Reporter",
   },
-  description: "AI-assisted adverse drug reaction reporting and institutional verification (fictional prototype).",
+  description: "Adverse drug reaction reporting and institutional verification (fictional prototype).",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

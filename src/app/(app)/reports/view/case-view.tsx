@@ -26,6 +26,7 @@ import { CaseSummary } from "@/components/case/case-summary";
 import { EscalateButton } from "@/components/case/escalate-button";
 import { Timeline } from "@/components/case/timeline";
 import { Button } from "@/components/ui/button";
+import { WorkspaceTabs, WorkspaceTabPanel } from "@/components/ui/workspace-tabs";
 import { canReview } from "@/lib/domain/access";
 import { changedPaths } from "@/lib/domain/case-fields";
 import { Loaded, PageError } from "@/components/data/page-state";
@@ -131,35 +132,53 @@ function CaseView({
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="min-w-0 space-y-3">
-          <p className="text-[13px] text-muted-foreground">
-            {d.access.edit
-              ? "Showing your current draft."
-              : d.latestSnapshot
-                ? `Showing version ${d.versions.at(-1)?.versionNo}, as submitted.${changed?.size ? " Highlighted fields changed since the previous version." : ""}`
-                : "Showing the current draft."}
-          </p>
-          <AiReviewSummary events={d.timeline} />
-          <CaseSummary snapshot={snapshot} changed={changed} provenance={d.provenance} issueCounts={openIssues} />
-        </div>
-        <div className="space-y-4">
-          <EscalationList details={d} />
-          <SubmissionList details={d} />
+      <WorkspaceTabs
+        label="Report sections"
+        tabs={[
+          { value: "overview", label: "Overview" },
+          { value: "documents", label: `Documents (${d.documents.length})` },
+          { value: "comments", label: `Comments (${d.comments.length})` },
+          { value: "history", label: "Versions and history" },
+        ]}
+      >
+        <WorkspaceTabPanel value="overview">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="min-w-0 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {d.access.edit
+                  ? "Showing your current draft."
+                  : d.latestSnapshot
+                    ? `Showing version ${d.versions.at(-1)?.versionNo}, as submitted.${changed?.size ? " Highlighted fields changed since the previous version." : ""}`
+                    : "Showing the current draft."}
+              </p>
+              <AiReviewSummary events={d.timeline} />
+              <CaseSummary snapshot={snapshot} changed={changed} provenance={d.provenance} issueCounts={openIssues} />
+            </div>
+            <aside className="space-y-4">
+              <EscalationList details={d} />
+              <SubmissionList details={d} />
+            </aside>
+          </div>
+        </WorkspaceTabPanel>
+        <WorkspaceTabPanel value="documents">
+          <Panel title="Documents" icon={<Paperclip className="size-4" aria-hidden />}>
+            <DocumentList details={d} />
+          </Panel>
+        </WorkspaceTabPanel>
+        <WorkspaceTabPanel value="comments">
           <Panel title="Comments" icon={<MessageSquare className="size-4" aria-hidden />}>
             <CommentList details={d} />
           </Panel>
+        </WorkspaceTabPanel>
+        <WorkspaceTabPanel value="history" className="grid gap-5 lg:grid-cols-[20rem_minmax(0,1fr)]">
           <Panel title="Versions" icon={<History className="size-4" aria-hidden />}>
             <VersionList details={d} />
-          </Panel>
-          <Panel title="Documents" icon={<Paperclip className="size-4" aria-hidden />}>
-            <DocumentList details={d} />
           </Panel>
           <Panel title="Timeline">
             <Timeline entries={d.timeline} />
           </Panel>
-        </div>
-      </div>
+        </WorkspaceTabPanel>
+      </WorkspaceTabs>
     </div>
   );
 }

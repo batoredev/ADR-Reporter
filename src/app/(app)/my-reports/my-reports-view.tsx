@@ -30,7 +30,7 @@ export function MyReportsView() {
         <div className="mx-auto max-w-6xl space-y-5">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">My reports</h1>
+              <h1 className="text-3xl font-semibold tracking-tight">My reports</h1>
               <p className="text-muted-foreground">Your drafts and submitted reports.</p>
             </div>
             <Button asChild>
@@ -39,10 +39,10 @@ export function MyReportsView() {
               </Link>
             </Button>
           </div>
-          <nav aria-label="Filter by status" className="flex flex-wrap gap-1.5 text-[13px]">
+          <nav aria-label="Filter by status" className="flex gap-1 overflow-x-auto border-b text-sm">
             <Link
               href="/my-reports"
-              className={`rounded-md border px-2.5 py-1 ${!filter ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+              className={`flex min-h-12 shrink-0 items-center border-b-2 border-transparent px-4 py-3 font-medium ${!filter ? "border-primary text-primary" : "text-muted-foreground hover:text-foreground"}`}
             >
               All
             </Link>
@@ -61,13 +61,13 @@ export function MyReportsView() {
               <Link
                 key={s}
                 href={`/my-reports?status=${s}`}
-                className={`rounded-md border px-2.5 py-1 ${filter === s ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                className={`flex min-h-12 shrink-0 items-center border-b-2 border-transparent px-4 py-3 font-medium ${filter === s ? "border-primary text-primary" : "text-muted-foreground hover:text-foreground"}`}
               >
                 {CASE_STATUS_LABELS[s]}
               </Link>
             ))}
           </nav>
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-xl border bg-card">
             <Table>
               <TableHeader className="bg-secondary">
                 <TableRow>

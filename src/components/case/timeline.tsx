@@ -21,10 +21,9 @@ function detail(entry: TimelineEntry): string | null {
     return `${d.finding}${typeof d.reason === "string" ? ` (reason: ${d.reason})` : ""}`;
   if (entry.action === "AI_FINDING_DECIDED") return `${d.decision}: ${d.finding}${d.reason ? ` (${d.reason})` : ""}`;
   if (entry.action === "GUIDED_STEP_SAVED") return String(d.stepId ?? "");
-  const model = typeof d.provider === "string" && typeof d.model === "string" ? `${d.provider} / ${d.model}` : null;
   if (entry.action === "AI_CHECK_RUN" && Array.isArray(d.findings))
-    return `${d.findings.length} point${d.findings.length === 1 ? "" : "s"} to check${model ? ` · ${model}` : ""}`;
-  return model;
+    return `${d.findings.length} point${d.findings.length === 1 ? "" : "s"} to check`;
+  return null;
 }
 
 /** The case's audit trail, newest first. Entries cannot be edited or deleted. */

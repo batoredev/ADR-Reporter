@@ -1,5 +1,4 @@
 import { aiHistory } from "@/lib/domain/ai-history";
-import { AiSource } from "./ai-source";
 
 /** Saved reporter decisions are also visible to reviewers. */
 export function AiReviewSummary({
@@ -17,12 +16,12 @@ export function AiReviewSummary({
   const unresolved =
     check?.findings.filter((_, i) => !check.decisions[i] || check.decisions[i].decision === "UNSURE").length ?? 0;
   return (
-    <section className="space-y-3 rounded-lg border bg-card p-4" aria-label="AI assistance history">
-      <h2 className="font-semibold">AI assistance and reporter decisions</h2>
+    <section className="space-y-3 rounded-lg border bg-card p-4" aria-label="Report checks and decisions">
+      <h2 className="font-semibold">Report checks and decisions</h2>
       {used ? (
         <details className="text-sm">
           <summary>
-            Narrative assisted by {used.provider} / {used.model}
+            Suggested description used
             {used.edited ? ", edited by the reporter" : ""}
           </summary>
           <p className="mt-2 text-xs text-muted-foreground">
@@ -43,7 +42,7 @@ export function AiReviewSummary({
       {check ? (
         <div className="space-y-2 text-sm">
           <p>
-            {unresolved} unresolved AI finding{unresolved === 1 ? "" : "s"}. These are suggestions for human review.
+            {unresolved} unresolved finding{unresolved === 1 ? "" : "s"}. These are suggestions for human review.
           </p>
           <ul className="space-y-2">
             {check.findings.map((f, i) => {
@@ -67,7 +66,7 @@ export function AiReviewSummary({
             })}
           </ul>
           <p className="text-xs text-muted-foreground">
-            Last check by <AiSource {...check} />. It applies to the saved report at the time of checking.
+            The check applies to the saved report at the time of checking.
           </p>
         </div>
       ) : null}

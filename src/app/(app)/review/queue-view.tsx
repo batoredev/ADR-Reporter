@@ -34,22 +34,22 @@ export function ReviewQueueView() {
       {({ filter, cases, counts }) => (
         <div className="mx-auto max-w-6xl space-y-5">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Review queue</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Review queue</h1>
             <p className="text-muted-foreground">
               Shared by all reviewers in the institution. Potentially serious reports come first, then the longest
               waiting.
             </p>
           </div>
 
-          <nav aria-label="Filter the queue" className="flex flex-wrap gap-1.5 text-[13px]">
+          <nav aria-label="Filter the queue" className="flex gap-1 overflow-x-auto border-b text-sm">
             {(Object.entries(QUEUE_FILTERS) as [QueueFilter, string][]).map(([key, label]) => (
               <Link
                 key={key}
                 href={key === "pending" ? "/review" : `/review?filter=${key}`}
                 aria-current={filter === key ? "page" : undefined}
                 className={cn(
-                  "rounded-md border px-2.5 py-1",
-                  filter === key ? "bg-primary text-primary-foreground" : "hover:bg-accent",
+                  "flex min-h-12 shrink-0 items-center gap-2 border-b-2 border-transparent px-4 py-3 font-medium",
+                  filter === key ? "border-primary text-primary" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {label} <span className={filter === key ? "opacity-80" : "text-muted-foreground"}>{counts[key]}</span>
@@ -57,7 +57,7 @@ export function ReviewQueueView() {
             ))}
           </nav>
 
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-xl border bg-card">
             <Table>
               <TableHeader className="bg-secondary">
                 <TableRow>

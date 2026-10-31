@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { WorkspaceTabs, WorkspaceTabPanel } from "@/components/ui/workspace-tabs";
 import { FileText, Inbox, Send } from "lucide-react";
 import { ActionDialog } from "@/components/actions/action-dialog";
 import { submissionFields } from "@/components/actions/submission-fields";
@@ -108,7 +109,7 @@ export function SubmissionsView() {
       {({ awaiting, submitted, acknowledged }) => (
         <div className="mx-auto max-w-5xl space-y-6">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">External submissions</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">External submissions</h1>
             <p className="text-muted-foreground">
               Tracking only. Approved reports are sent to the AMC or NCC outside this app; coordinators record what was
               sent and any acknowledgement.
@@ -116,68 +117,83 @@ export function SubmissionsView() {
             </p>
           </div>
 
-          <section aria-labelledby="awaiting" className="space-y-2">
-            <h2 id="awaiting" className="flex items-center gap-1.5 text-base font-semibold">
-              <Inbox className="size-4" aria-hidden /> Approved, awaiting submission ({awaiting.length})
-            </h2>
-            {awaiting.length === 0 ? <p className="text-sm text-muted-foreground">Nothing waiting.</p> : null}
-            <ul className="space-y-2">
-              {awaiting.map((c) => (
-                <li key={c.id} className="rounded-lg border bg-card px-4 py-3">
-                  <CaseLine c={c} />
-                  {submissionsOf(c, false)}
-                  {coordinator ? (
-                    <div className="mt-2">
-                      <ActionDialog
-                        trigger={
-                          <>
-                            <Send aria-hidden /> Record submission
-                          </>
-                        }
-                        triggerVariant="default"
-                        triggerSize="sm"
-                        title={`Record submission of ${c.caseNumber}`}
-                        description="Record how the approved PDF was sent. The app does not send it."
-                        fields={submissionFields(now, "e.g. AMC, Demo Medical College (fictional)")}
-                        submitLabel="Record submission"
-                        action={(values) => actions.recordSubmission(c.id, values)}
-                      />
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </section>
+          <WorkspaceTabs
+            label="Work status"
+            tabs={[
+              { value: "awaiting", label: `Ready to send (${awaiting.length})` },
+              { value: "submitted", label: `Awaiting acknowledgement (${submitted.length})` },
+              { value: "acknowledged", label: `Acknowledged (${acknowledged.length})` },
+            ]}
+          >
+            <WorkspaceTabPanel value="awaiting">
+              <section aria-labelledby="awaiting" className="space-y-2">
+                <h2 id="awaiting" className="flex items-center gap-1.5 text-base font-semibold">
+                  <Inbox className="size-4" aria-hidden /> Approved, awaiting submission ({awaiting.length})
+                </h2>
+                {awaiting.length === 0 ? <p className="text-sm text-muted-foreground">Nothing waiting.</p> : null}
+                <ul className="space-y-2">
+                  {awaiting.map((c) => (
+                    <li key={c.id} className="rounded-lg border bg-card px-4 py-3">
+                      <CaseLine c={c} />
+                      {submissionsOf(c, false)}
+                      {coordinator ? (
+                        <div className="mt-2">
+                          <ActionDialog
+                            trigger={
+                              <>
+                                <Send aria-hidden /> Record submission
+                              </>
+                            }
+                            triggerVariant="default"
+                            triggerSize="sm"
+                            title={`Record submission of ${c.caseNumber}`}
+                            description="Record how the approved PDF was sent. The app does not send it."
+                            fields={submissionFields(now, "e.g. AMC, Demo Medical College (fictional)")}
+                            submitLabel="Record submission"
+                            action={(values) => actions.recordSubmission(c.id, values)}
+                          />
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </WorkspaceTabPanel>
 
-          <section aria-labelledby="submitted" className="space-y-2">
-            <h2 id="submitted" className="text-base font-semibold">
-              Submitted, awaiting acknowledgement ({submitted.length})
-            </h2>
-            {submitted.length === 0 ? <p className="text-sm text-muted-foreground">None.</p> : null}
-            <ul className="space-y-2">
-              {submitted.map((c) => (
-                <li key={c.id} className="rounded-lg border bg-card px-4 py-3">
-                  <CaseLine c={c} />
-                  {submissionsOf(c, true)}
-                </li>
-              ))}
-            </ul>
-          </section>
+            <WorkspaceTabPanel value="submitted">
+              <section aria-labelledby="submitted" className="space-y-2">
+                <h2 id="submitted" className="text-base font-semibold">
+                  Submitted, awaiting acknowledgement ({submitted.length})
+                </h2>
+                {submitted.length === 0 ? <p className="text-sm text-muted-foreground">None.</p> : null}
+                <ul className="space-y-2">
+                  {submitted.map((c) => (
+                    <li key={c.id} className="rounded-lg border bg-card px-4 py-3">
+                      <CaseLine c={c} />
+                      {submissionsOf(c, true)}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </WorkspaceTabPanel>
 
-          <section aria-labelledby="acknowledged" className="space-y-2">
-            <h2 id="acknowledged" className="text-base font-semibold">
-              Acknowledged ({acknowledged.length})
-            </h2>
-            {acknowledged.length === 0 ? <p className="text-sm text-muted-foreground">None yet.</p> : null}
-            <ul className="space-y-2">
-              {acknowledged.map((c) => (
-                <li key={c.id} className="rounded-lg border bg-card px-4 py-3">
-                  <CaseLine c={c} />
-                  {submissionsOf(c, false)}
-                </li>
-              ))}
-            </ul>
-          </section>
+            <WorkspaceTabPanel value="acknowledged">
+              <section aria-labelledby="acknowledged" className="space-y-2">
+                <h2 id="acknowledged" className="text-base font-semibold">
+                  Acknowledged ({acknowledged.length})
+                </h2>
+                {acknowledged.length === 0 ? <p className="text-sm text-muted-foreground">None yet.</p> : null}
+                <ul className="space-y-2">
+                  {acknowledged.map((c) => (
+                    <li key={c.id} className="rounded-lg border bg-card px-4 py-3">
+                      <CaseLine c={c} />
+                      {submissionsOf(c, false)}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </WorkspaceTabPanel>
+          </WorkspaceTabs>
         </div>
       )}
     </Loaded>

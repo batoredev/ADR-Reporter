@@ -11,7 +11,7 @@ export type FormPath = FieldPath<CaseFormValues>;
 export const fieldId = (path: string) => `field-${path.replace(/\./g, "-")}`;
 
 export const inputClass =
-  "h-8 w-full min-w-0 rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-secondary disabled:opacity-60 aria-invalid:border-destructive";
+  "h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:bg-secondary disabled:opacity-60 aria-invalid:border-destructive";
 
 export interface IssueView {
   id: string;
@@ -51,7 +51,7 @@ export function FieldShell({ id, label, required, hint, error, aside, issues, cl
   return (
     <div className={cn("space-y-1", className)}>
       <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={id} className="text-[13px] font-medium">
+        <label htmlFor={id} className="text-sm font-medium">
           {label}
           {required ? (
             <span className="text-destructive" aria-hidden>

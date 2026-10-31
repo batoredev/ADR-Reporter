@@ -41,9 +41,13 @@ function NotEntered() {
 
 function Metric({ label, value, tone }: { label: string; value: number; tone?: "serious" }) {
   return (
-    <div className="rounded-lg border bg-card px-4 py-3">
+    <div className="rounded-xl border bg-card px-5 py-5">
       <p className="text-[13px] text-muted-foreground">{label}</p>
-      <p className={tone === "serious" && value > 0 ? "text-2xl font-semibold text-serious" : "text-2xl font-semibold"}>
+      <p
+        className={
+          tone === "serious" && value > 0 ? "mt-2 text-3xl font-semibold text-serious" : "mt-2 text-3xl font-semibold"
+        }
+      >
         {value}
       </p>
     </div>
@@ -65,12 +69,22 @@ export function DashboardView() {
     <Loaded state={state}>
       {({ metrics, recent }) => (
         <div className="mx-auto max-w-6xl space-y-6">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-            <p className="text-muted-foreground">
-              Signed in as {user.name}
-              {user.designation ? ` · ${user.designation}` : ""}
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight">
+                {canReview(user) ? "Review overview" : "Overview"}
+              </h1>
+              <p className="mt-2 text-muted-foreground">
+                {canReview(user) ? "Focus on cases that need your attention." : "Your reporting workspace."}
+                <span className="sr-only"> Signed in as {user.name}</span>
+              </p>
+            </div>
+            <Button asChild>
+              <Link href={canReport(user) ? "/reports/new" : "/review"}>
+                {canReport(user) ? <FilePlus2 aria-hidden /> : <ClipboardCheck aria-hidden />}
+                {canReport(user) ? "New ADR report" : "Open review queue"}
+              </Link>
+            </Button>
           </div>
 
           {metrics.openEscalations ? (
@@ -89,57 +103,101 @@ export function DashboardView() {
             </Alert>
           ) : null}
 
-          <section aria-label="Case counts" className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-            <Metric label="Total" value={metrics.total} />
-            {metrics.drafts !== null ? <Metric label="Drafts" value={metrics.drafts} /> : null}
+          <section aria-label="Case counts" className="grid gap-4 sm:grid-cols-3">
+            {metrics.drafts !== null ? (
+              <Metric label="Drafts" value={metrics.drafts} />
+            ) : (
+              <Metric label="Potentially serious" value={metrics.potentiallySerious} tone="serious" />
+            )}
+            {canReport(user) ? (
+              <Metric label="Needs correction" value={metrics.returned} />
+            ) : (
+              <Metric label="Open escalations" value={metrics.openEscalations ?? 0} tone="serious" />
+            )}
             <Metric label="Pending review" value={metrics.pendingReview} />
-            <Metric label="Returned" value={metrics.returned} />
-            <Metric label="Approved" value={metrics.approved} />
-            <Metric label="Externally submitted" value={metrics.externallySubmitted} />
-            <Metric label="Potentially serious" value={metrics.potentiallySerious} tone="serious" />
           </section>
 
-          <section aria-labelledby="quick-actions" className="space-y-2">
-            <h2 id="quick-actions" className="text-base font-semibold">
-              Quick actions
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {canReport(user) ? (
-                <>
-                  <Button asChild>
-                    <Link href="/reports/new">
-                      <FilePlus2 aria-hidden />
-                      New ADR report
+          {canReport(user) &&
+          !canReview(user) &&
+          recent.some((c) => c.status === "RETURNED" || c.status === "DRAFT") ? (
+            <section className="rounded-xl border bg-card p-5" aria-label="Reports needing your attention">
+              <h2 className="text-lg font-semibold">Needs your attention</h2>
+              <div className="mt-4 divide-y">
+                {recent
+                  .filter((c) => c.status === "RETURNED" || c.status === "DRAFT")
+                  .sort((a, b) => Number(b.status === "RETURNED") - Number(a.status === "RETURNED"))
+                  .slice(0, 3)
+                  .map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex flex-wrap items-center justify-between gap-3 py-4 first:pt-0 last:pb-0"
+                    >
+                      <div>
+                        <p className="font-semibold">
+                          {c.caseNumber} · {c.reactionTerms ?? "New draft"}
+                        </p>
+                        <p className="mt-1">
+                          <StatusBadge status={c.status} />
+                        </p>
+                      </div>
+                      <Button asChild variant={c.status === "RETURNED" ? "outline" : "default"}>
+                        <Link href={pages.caseEdit(c.id)}>
+                          {c.status === "RETURNED" ? "Review feedback" : "Continue"}
+                        </Link>
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            </section>
+          ) : null}
+
+          <details className="rounded-xl border bg-card px-5 py-3">
+            <summary className="text-sm font-medium">Workspace shortcuts and counts</summary>
+            <section aria-labelledby="quick-actions" className="mt-4 space-y-3">
+              <h2 id="quick-actions" className="text-base font-semibold">
+                Quick actions
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {canReport(user) ? (
+                  <>
+                    <Button asChild>
+                      <Link href="/reports/new">
+                        <FilePlus2 aria-hidden />
+                        New ADR report
+                      </Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                      <Link href="/my-reports">
+                        <Files aria-hidden />
+                        My reports
+                      </Link>
+                    </Button>
+                  </>
+                ) : null}
+                {canReview(user) ? (
+                  <Button asChild variant={canReport(user) ? "outline" : "default"}>
+                    <Link href="/review">
+                      <ClipboardCheck aria-hidden />
+                      Review queue
                     </Link>
                   </Button>
+                ) : null}
+                {canHandleEscalations(user) ? (
                   <Button asChild variant="outline">
-                    <Link href="/my-reports">
-                      <Files aria-hidden />
-                      My reports
+                    <Link href="/escalations">
+                      <Siren aria-hidden />
+                      Urgent escalations
                     </Link>
                   </Button>
-                </>
-              ) : null}
-              {canReview(user) ? (
-                <Button asChild variant={canReport(user) ? "outline" : "default"}>
-                  <Link href="/review">
-                    <ClipboardCheck aria-hidden />
-                    Review queue
-                  </Link>
-                </Button>
-              ) : null}
-              {canHandleEscalations(user) ? (
-                <Button asChild variant="outline">
-                  <Link href="/escalations">
-                    <Siren aria-hidden />
-                    Urgent escalations
-                  </Link>
-                </Button>
-              ) : null}
-            </div>
-          </section>
+                ) : null}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {metrics.total} total · {metrics.approved} approved · {metrics.externallySubmitted} externally submitted
+              </p>
+            </section>
+          </details>
 
-          <section aria-labelledby="recent-cases" className="space-y-3">
+          <section aria-labelledby="recent-cases" className="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
             <div className="space-y-3">
               <div>
                 <h2 id="recent-cases" className="text-base font-semibold">
@@ -200,24 +258,22 @@ export function DashboardView() {
               <Table>
                 <TableHeader className="bg-secondary">
                   <TableRow>
-                    <TableHead>Report ID</TableHead>
-                    <TableHead>Patient</TableHead>
+                    <TableHead>Report</TableHead>
                     <TableHead>Suspected medicine / reaction</TableHead>
-                    <TableHead>Reporter</TableHead>
+                    {canReview(user) ? <TableHead>Reporter</TableHead> : null}
                     <TableHead>Submitted</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Seriousness</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {recent.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                      <TableCell colSpan={canReview(user) ? 5 : 4} className="py-10 text-center text-muted-foreground">
                         {filtered ? "No cases match these filters." : "No cases yet."}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    recent.map((c) => {
+                    recent.slice(0, 8).map((c) => {
                       const medicine = c.suspectedMedicines[0]?.name;
                       return (
                         <TableRow key={c.id}>
@@ -228,8 +284,10 @@ export function DashboardView() {
                             >
                               {c.caseNumber}
                             </Link>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {c.patientInitials ?? "Initials not entered"}
+                            </span>
                           </TableCell>
-                          <TableCell>{c.patientInitials ?? <NotEntered />}</TableCell>
                           <TableCell className="max-w-64">
                             <span className="block truncate" title={medicine ?? undefined}>
                               {medicine ?? <NotEntered />}
@@ -241,7 +299,9 @@ export function DashboardView() {
                               {c.reactionTerms ?? "Reaction not entered"}
                             </span>
                           </TableCell>
-                          <TableCell className="min-w-32 whitespace-normal">{c.reporter.name}</TableCell>
+                          {canReview(user) ? (
+                            <TableCell className="min-w-32 whitespace-normal">{c.reporter.name}</TableCell>
+                          ) : null}
                           <TableCell>
                             {c.lastSubmittedAt ? (
                               <>
@@ -259,13 +319,11 @@ export function DashboardView() {
                             {c.assignee ? (
                               <span className="mt-0.5 block text-xs text-muted-foreground">{c.assignee.name}</span>
                             ) : null}
-                          </TableCell>
-                          <TableCell>
                             {c.isPotentiallySerious ? (
-                              <SeriousBadge />
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
+                              <span className="mt-1 block">
+                                <SeriousBadge />
+                              </span>
+                            ) : null}
                           </TableCell>
                         </TableRow>
                       );
@@ -274,6 +332,12 @@ export function DashboardView() {
                 </TableBody>
               </Table>
             </div>
+            <Link
+              href={canReview(user) ? "/review" : "/my-reports"}
+              className="inline-flex min-h-10 items-center text-sm font-medium text-primary hover:underline"
+            >
+              {canReview(user) ? "View review queue" : "View all reports"}
+            </Link>
           </section>
         </div>
       )}

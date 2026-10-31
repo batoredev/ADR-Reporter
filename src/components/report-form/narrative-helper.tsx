@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useFormContext } from "react-hook-form";
-import { AlertTriangle, Loader2, Sparkles, WandSparkles } from "lucide-react";
+import { AlertTriangle, Loader2, FilePenLine } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
-import { AiChain, AiSource } from "@/components/ai/ai-source";
+import { AiChain } from "@/components/ai/ai-source";
 import { actions } from "@/lib/api/actions";
+import { toolError } from "@/lib/api/tool-error";
 import type { CaseFormValues } from "@/lib/domain/case-form";
 import type { NarrativeDraft } from "@/server/workflow/ai-assist";
 import type { AiStatus } from "@/server/ai/provider";
@@ -111,10 +112,12 @@ export function NarrativeHelper({ caseId, ai }: { caseId: string; ai: AiStatus }
           onClick={() => setOpen(true)}
           disabled={busy || !ai.available}
         >
-          <WandSparkles aria-hidden /> Write item 7 from notes with AI
+          <FilePenLine aria-hidden /> Draft description from notes
         </Button>
         {done ? <span className="text-[13px] text-success">{done}</span> : null}
-        {!ai.available ? <span className="text-xs text-muted-foreground">{ai.reason}</span> : null}
+        {!ai.available ? (
+          <span className="text-xs text-muted-foreground">Description drafting is temporarily unavailable.</span>
+        ) : null}
       </div>
     );
 
@@ -124,11 +127,10 @@ export function NarrativeHelper({ caseId, ai }: { caseId: string; ai: AiStatus }
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-            <WandSparkles className="size-4 text-ai" aria-hidden /> Draft the narrative with AI
+            <FilePenLine className="size-4 text-ai" aria-hidden /> Draft description
           </h3>
           <p className="text-[13px] text-muted-foreground">
-            Jot down what happened in any order. The AI proposes an account in time order. Check the wording and every
-            fact before using it.
+            Add your notes to draft an account in time order. Check the wording and every fact before using it.
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -158,7 +160,7 @@ export function NarrativeHelper({ caseId, ai }: { caseId: string; ai: AiStatus }
       </label>
       <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" onClick={() => void generate()} disabled={busy || !ai.available}>
-          {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />} Draft narrative
+          {busy ? <Loader2 className="animate-spin" aria-hidden /> : <FilePenLine aria-hidden />} Draft narrative
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
           Close
@@ -166,20 +168,19 @@ export function NarrativeHelper({ caseId, ai }: { caseId: string; ai: AiStatus }
       </div>
       {busy ? (
         <p className="text-sm text-muted-foreground" aria-live="polite">
-          Writing… free services are tried first; this can take up to three minutes.
+          Drafting your description. This may take a few minutes.
         </p>
       ) : null}
       {error ? (
         <p className="flex items-start gap-1.5 text-sm text-destructive" role="alert">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden /> {error}
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden /> {toolError(error)}
         </p>
       ) : null}
 
       {draft ? (
         <div className="space-y-2 border-t border-ai/20 pt-3">
           <p className="text-[13px]">
-            <span className="font-medium">Draft, edit freely.</span> Written by{" "}
-            <AiSource provider={draft.provider} model={draft.model} attempts={draft.attempts} />.
+            <span className="font-medium">Suggested description.</span> Review and edit before using.
           </p>
           <details className="rounded border bg-background p-2 text-xs">
             <summary>Compare with source notes and saved report</summary>
@@ -191,7 +192,7 @@ export function NarrativeHelper({ caseId, ai }: { caseId: string; ai: AiStatus }
                 </pre>
               </div>
               <div>
-                <strong>Original AI draft</strong>
+                <strong>Original draft</strong>
                 <p className="whitespace-pre-wrap">{draft.narrative}</p>
               </div>
             </div>
@@ -201,11 +202,11 @@ export function NarrativeHelper({ caseId, ai }: { caseId: string; ai: AiStatus }
             <NarrativeChanges before={current} after={text} />
           </details>
           {text !== draft.narrative ? (
-            <p className="text-xs">You have edited the AI draft. Both versions will be recorded when saved.</p>
+            <p className="text-xs">You have edited the draft. Both versions will be recorded when saved.</p>
           ) : null}
           <textarea
             rows={6}
-            aria-label="AI-drafted narrative"
+            aria-label="Suggested description"
             className={cn(inputClass, "h-auto bg-background py-1.5")}
             value={text}
             onChange={(e) => {
@@ -230,7 +231,7 @@ export function NarrativeHelper({ caseId, ai }: { caseId: string; ai: AiStatus }
           )}
           {draft.needsChecking.length ? (
             <div className="text-[13px]">
-              <p className="font-medium">The AI was unsure about:</p>
+              <p className="font-medium">Details to check:</p>
               <ul className="ml-5 list-disc">
                 {draft.needsChecking.map((q, i) => (
                   <li key={i}>{q}</li>

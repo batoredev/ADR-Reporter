@@ -32,12 +32,18 @@ export function UserMenu({ name, email, access }: UserMenuProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="h-auto gap-2 px-2 py-1 text-left">
-          <span className="hidden min-w-0 sm:block">
-            <span className="block truncate text-sm font-medium">{name}</span>
-            <span className="block truncate text-xs text-muted-foreground">{access}</span>
+          <span
+            className="grid size-9 place-items-center rounded-full bg-info-soft text-sm font-semibold text-primary"
+            aria-hidden
+          >
+            {name
+              .split(/\s+/)
+              .filter(Boolean)
+              .map((part) => part[0])
+              .slice(0, 2)
+              .join("")}
           </span>
-          <UserRound className="sm:hidden" aria-hidden />
-          <span className="sr-only sm:hidden">Account menu for {name}</span>
+          <span className="sr-only">Account menu for {name}</span>
           <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
         </Button>
       </DropdownMenuTrigger>

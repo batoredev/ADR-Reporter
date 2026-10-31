@@ -37,7 +37,7 @@ interface NavLinksProps {
 export function NavLinks({ items, onNavigate }: NavLinksProps) {
   const pathname = usePathname();
   return (
-    <ul className="space-y-0.5">
+    <ul className="space-y-1.5">
       {items.map((item) => {
         const Icon = ICONS[item.icon];
         const active = isActive(pathname, item.href);
@@ -48,12 +48,12 @@ export function NavLinks({ items, onNavigate }: NavLinksProps) {
               onClick={onNavigate}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                active && "bg-sidebar-accent font-medium text-foreground",
+                "flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                active && "bg-sidebar-accent font-semibold text-primary",
               )}
             >
               <Icon className={cn("size-4 shrink-0", active && "text-primary")} aria-hidden />
-              {item.label}
+              {item.href === "/dashboard" ? "Overview" : item.label}
             </Link>
           </li>
         );

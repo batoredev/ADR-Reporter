@@ -36,6 +36,7 @@ import { Timeline } from "@/components/case/timeline";
 import { Checklist } from "@/components/review/checklist";
 import { CommentForm } from "@/components/review/comment-form";
 import { Button } from "@/components/ui/button";
+import { WorkspaceTabs, WorkspaceTabPanel } from "@/components/ui/workspace-tabs";
 import { ChecklistItemKey } from "@/generated/prisma/enums";
 import { canReview } from "@/lib/domain/access";
 import { changedPaths, commentTargets } from "@/lib/domain/case-fields";
@@ -182,45 +183,59 @@ function Workspace({
                 />
               </>
             ) : null}
-            {access.release ? (
-              <ActionDialog
-                trigger={
-                  <>
-                    <Undo2 aria-hidden /> Release
-                  </>
-                }
-                triggerVariant="ghost"
-                title="Release to the pool"
-                description="Any reviewer can then take the case up. Comments and checklist progress are kept."
-                fields={[{ name: "reason", label: "Reason", type: "textarea", optional: true }]}
-                submitLabel="Release"
-                action={(values) => actions.release(id, values)}
-              />
-            ) : null}
-            {access.reassign && reviewers.length ? (
-              <ActionDialog
-                trigger={
-                  <>
-                    <ArrowLeftRight aria-hidden /> Reassign
-                  </>
-                }
-                triggerVariant="ghost"
-                title="Reassign to another reviewer"
-                fields={[
-                  {
-                    name: "toUserId",
-                    label: "Reviewer",
-                    type: "select",
-                    options: reviewers.map((r) => ({
-                      value: r.id,
-                      label: r.designation ? `${r.name}, ${r.designation}` : r.name,
-                    })),
-                  },
-                  { name: "reason", label: "Reason", type: "textarea", placeholder: "e.g. Specialist input needed" },
-                ]}
-                submitLabel="Reassign"
-                action={(values) => actions.reassign(id, values)}
-              />
+            {access.release || (access.reassign && reviewers.length > 0) ? (
+              <details className="relative">
+                <summary className="flex min-h-10 items-center rounded-md border bg-card px-4 text-sm font-medium">
+                  More actions
+                </summary>
+                <div className="absolute right-0 z-20 mt-2 flex w-56 flex-col gap-1 rounded-xl border bg-card p-2 shadow-md">
+                  {access.release ? (
+                    <ActionDialog
+                      trigger={
+                        <>
+                          <Undo2 aria-hidden /> Release
+                        </>
+                      }
+                      triggerVariant="ghost"
+                      title="Release to the pool"
+                      description="Any reviewer can then take the case up. Comments and checklist progress are kept."
+                      fields={[{ name: "reason", label: "Reason", type: "textarea", optional: true }]}
+                      submitLabel="Release"
+                      action={(values) => actions.release(id, values)}
+                    />
+                  ) : null}
+                  {access.reassign && reviewers.length ? (
+                    <ActionDialog
+                      trigger={
+                        <>
+                          <ArrowLeftRight aria-hidden /> Reassign
+                        </>
+                      }
+                      triggerVariant="ghost"
+                      title="Reassign to another reviewer"
+                      fields={[
+                        {
+                          name: "toUserId",
+                          label: "Reviewer",
+                          type: "select",
+                          options: reviewers.map((r) => ({
+                            value: r.id,
+                            label: r.designation ? `${r.name}, ${r.designation}` : r.name,
+                          })),
+                        },
+                        {
+                          name: "reason",
+                          label: "Reason",
+                          type: "textarea",
+                          placeholder: "e.g. Specialist input needed",
+                        },
+                      ]}
+                      submitLabel="Reassign"
+                      action={(values) => actions.reassign(id, values)}
+                    />
+                  ) : null}
+                </div>
+              </details>
             ) : null}
             {access.escalate ? <EscalateButton caseId={id} /> : null}
             <Button variant="outline" onClick={() => void openFile(files.casePdf(id, approvedVersion?.versionNo))}>
@@ -275,25 +290,47 @@ function Workspace({
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <div className="min-w-0 space-y-3">
-          <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-            <Eye className="size-3.5" aria-hidden />
-            Version {d.versions.at(-1)?.versionNo}
-            {changed?.size
-              ? ` · ${changed.size} field${changed.size === 1 ? "" : "s"} changed since v${d.versions.at(-2)?.versionNo}`
-              : ""}
-            {Object.keys(d.provenance).length
-              ? " · purple marks values read from an uploaded document and verified"
-              : ""}
-          </p>
-          <AiReviewSummary events={d.timeline} />
-          <CaseSummary snapshot={snapshot} changed={changed} provenance={d.provenance} issueCounts={issueCounts} />
-        </div>
-        <div className="space-y-4">
+      <WorkspaceTabs
+        label="Review sections"
+        tabs={[
+          { value: "report", label: "Report and evidence" },
+          {
+            value: "checklist",
+            label: `Checklist (${checklistRows.length - missingChecklist.length}/${checklistRows.length})`,
+          },
+          { value: "comments", label: `Comments and issues (${openIssues.length} open)` },
+          { value: "history", label: "History" },
+        ]}
+      >
+        <WorkspaceTabPanel value="report" className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="min-w-0 space-y-3">
+            <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <Eye className="size-3.5" aria-hidden />
+              Version {d.versions.at(-1)?.versionNo}
+              {changed?.size
+                ? ` · ${changed.size} field${changed.size === 1 ? "" : "s"} changed since v${d.versions.at(-2)?.versionNo}`
+                : ""}
+              {Object.keys(d.provenance).length
+                ? " · purple marks values read from an uploaded document and verified"
+                : ""}
+            </p>
+            <AiReviewSummary events={d.timeline} />
+            <CaseSummary snapshot={snapshot} changed={changed} provenance={d.provenance} issueCounts={issueCounts} />
+          </div>
+          <aside className="space-y-4">
+            <Panel title="Source documents" icon={<Paperclip className="size-4" aria-hidden />}>
+              <DocumentList details={d} />
+            </Panel>
+            <EscalationList details={d} />
+            <SubmissionList details={d} />
+          </aside>
+        </WorkspaceTabPanel>
+        <WorkspaceTabPanel value="checklist">
           <Panel title="Verification checklist" icon={<ListChecks className="size-4" aria-hidden />}>
             <Checklist rows={checklistRows} editable={access.decide} action={(input) => actions.checklist(id, input)} />
           </Panel>
+        </WorkspaceTabPanel>
+        <WorkspaceTabPanel value="comments">
           <Panel title="Comments and issues" icon={<MessageSquare className="size-4" aria-hidden />}>
             <div className="space-y-3">
               <CommentList
@@ -339,11 +376,8 @@ function Workspace({
               ) : null}
             </div>
           </Panel>
-          <EscalationList details={d} />
-          <SubmissionList details={d} />
-          <Panel title="Sources" icon={<Paperclip className="size-4" aria-hidden />}>
-            <DocumentList details={d} />
-          </Panel>
+        </WorkspaceTabPanel>
+        <WorkspaceTabPanel value="history" className="grid gap-5 lg:grid-cols-2">
           <Panel title="Versions" icon={<History className="size-4" aria-hidden />}>
             <VersionList details={d} />
           </Panel>
@@ -366,8 +400,8 @@ function Workspace({
           <Panel title="Timeline" icon={<ClipboardCheck className="size-4" aria-hidden />}>
             <Timeline entries={d.timeline} />
           </Panel>
-        </div>
-      </div>
+        </WorkspaceTabPanel>
+      </WorkspaceTabs>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Already signed in: go straight to the dashboard.
   useEffect(() => {
@@ -78,15 +79,27 @@ export function LoginForm() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+          <div className="relative">
+            <Input
+              id="password"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="pr-12"
+            />
+            <button
+              type="button"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute top-0 right-0 grid size-11 place-items-center rounded-r-lg text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {showPassword ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+            </button>
+          </div>
         </div>
         <Button type="submit" className="w-full" disabled={pending}>
           {pending ? "Signing in…" : "Sign in"}
@@ -94,37 +107,40 @@ export function LoginForm() {
       </form>
 
       {demoPassword && demoAccounts.length > 0 ? (
-        <section aria-labelledby="demo-accounts-heading" className="space-y-3">
-          <div>
-            <h2 id="demo-accounts-heading" className="text-sm font-medium">
-              Fictional demo accounts
-            </h2>
-            <p className="text-[13px] text-muted-foreground">
-              Every account uses the password <code className="font-mono text-foreground">{demoPassword}</code>. Select
-              one to sign in.
-            </p>
-          </div>
-          <ul className="divide-y rounded-lg border">
-            {demoAccounts.map((account) => (
-              <li key={account.email}>
-                <button
-                  type="button"
-                  onClick={() => signInAs(account)}
-                  disabled={pending}
-                  className="flex w-full flex-col gap-0.5 px-3 py-2 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:opacity-60 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-                >
-                  <span className="min-w-0">
-                    <span className="block font-medium">{account.name}</span>
-                    <span className="block text-[13px] break-all text-muted-foreground">{account.email}</span>
-                  </span>
-                  <span className="text-[13px] text-muted-foreground sm:max-w-[45%] sm:text-right">
-                    {account.summary}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <details className="rounded-xl border bg-secondary/40 p-4">
+          <summary className="font-medium">Try a demo account</summary>
+          <section aria-labelledby="demo-accounts-heading" className="mt-4 space-y-3">
+            <div>
+              <h2 id="demo-accounts-heading" className="text-sm font-medium">
+                Fictional demo accounts
+              </h2>
+              <p className="text-[13px] text-muted-foreground">
+                Every account uses the password <code className="font-mono text-foreground">{demoPassword}</code>.
+                Select one to sign in.
+              </p>
+            </div>
+            <ul className="divide-y rounded-lg border">
+              {demoAccounts.map((account) => (
+                <li key={account.email}>
+                  <button
+                    type="button"
+                    onClick={() => signInAs(account)}
+                    disabled={pending}
+                    className="flex w-full flex-col gap-0.5 px-3 py-2 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:opacity-60 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-medium">{account.name}</span>
+                      <span className="block text-[13px] break-all text-muted-foreground">{account.email}</span>
+                    </span>
+                    <span className="text-[13px] text-muted-foreground sm:max-w-[45%] sm:text-right">
+                      {account.summary}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </details>
       ) : null}
     </div>
   );

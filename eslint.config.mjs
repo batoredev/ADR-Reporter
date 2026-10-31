@@ -23,6 +23,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Generated Prisma client and test output:
     "src/generated/**",
+    "docs/design/**",
     "playwright-report/**",
     "test-results/**",
     // Static site output and the generated Edge Function bundle:

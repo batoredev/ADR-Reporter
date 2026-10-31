@@ -20,10 +20,10 @@ interface CaseHeaderProps {
 
 export function CaseHeader(p: CaseHeaderProps) {
   return (
-    <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="flex min-w-0 flex-col gap-4 border-b pb-5 xl:flex-row xl:items-start xl:justify-between">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{p.caseNumber}</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{p.caseNumber}</h1>
           <StatusBadge status={p.status} />
           {p.isPotentiallySerious ? <SeriousBadge /> : null}
           {p.openEscalation ? (
@@ -46,7 +46,7 @@ export function CaseHeader(p: CaseHeaderProps) {
           </p>
         ) : null}
       </div>
-      {p.actions ? <div className="flex shrink-0 flex-wrap gap-2">{p.actions}</div> : null}
+      {p.actions ? <div className="flex min-w-0 flex-wrap gap-2 xl:max-w-[55%] xl:justify-end">{p.actions}</div> : null}
     </div>
   );
 }

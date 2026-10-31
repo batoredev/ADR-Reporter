@@ -87,7 +87,6 @@ function Row({
             >
               <FileText className="size-3" aria-hidden />
               From {source.documentName}
-              {source.model ? ` · AI-suggested (${source.model})` : ""}
               {source.verifiedBy ? ` · verified by ${source.verifiedBy}` : ""}
               {source.uncertainReading ? " · unclear reading checked by reporter" : ""}
             </FileLink>

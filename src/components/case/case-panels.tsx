@@ -20,15 +20,15 @@ export function Panel({
   action?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border bg-card">
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+    <section className="rounded-xl border bg-card">
+      <div className="flex items-center justify-between gap-2 border-b px-5 py-4">
+        <h2 className="flex items-center gap-2 text-base font-semibold">
           {icon}
           {title}
         </h2>
         {action}
       </div>
-      <div className="px-4 py-3">{children}</div>
+      <div className="px-5 py-4">{children}</div>
     </section>
   );
 }
@@ -191,9 +191,7 @@ export function DocumentList({ details }: { details: CaseDetails }) {
           </FileLink>
           <span className="block text-xs text-muted-foreground">
             Uploaded by {doc.uploadedBy.name} · {formatDateTime(doc.createdAt)}
-            {doc.runs[0]
-              ? ` · extraction: ${doc.runs[0].status.toLowerCase()} (${doc.runs[0].provider}/${doc.runs[0].model})`
-              : ""}
+            {doc.runs[0] ? ` · document reading: ${doc.runs[0].status.toLowerCase()}` : ""}
           </span>
         </li>
       ))}

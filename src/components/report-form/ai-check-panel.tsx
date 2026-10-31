@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useWatch } from "react-hook-form";
 import { Button } from "@/components/ui/button";
-import { AiChain, AiSource } from "@/components/ai/ai-source";
+import { AiChain } from "@/components/ai/ai-source";
 import { actions } from "@/lib/api/actions";
+import { toolError } from "@/lib/api/tool-error";
 import { CHECK_KIND_LABELS, type CheckTarget } from "@/lib/domain/ai-checks";
 import type { FindingDecision, SavedCheck } from "@/lib/domain/ai-history";
 import type { AiStatus } from "@/server/ai/provider";
@@ -82,20 +83,20 @@ export function AiCheckPanel({ caseId, ai }: { caseId: string; ai: AiStatus }) {
   }
   return (
     <div className="space-y-3 rounded-lg border border-ai/25 bg-ai-soft/60 p-4">
-      <h2 className="text-base font-semibold">Check with AI</h2>
+      <h2 className="text-base font-semibold">Check report</h2>
       <p className="text-[13px] text-muted-foreground">
         Looks for contradictions and gaps in the saved report and available document extractions. It never changes your
         answers.
       </p>
       <Button type="button" size="sm" disabled={busy || !ai.available} onClick={() => void run()}>
-        {busy ? "Please wait..." : result ? "Check again" : "Check with AI"}
+        {busy ? "Please wait..." : result ? "Check again" : "Check report"}
       </Button>
       <p className="text-xs text-muted-foreground">
         <AiChain ai={ai} />
       </p>
       {error ? (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {toolError(error)}
         </p>
       ) : null}
       {result ? (
@@ -177,7 +178,6 @@ export function AiCheckPanel({ caseId, ai }: { caseId: string; ai: AiStatus }) {
             })}
           </ul>
           <p className="text-xs text-muted-foreground">
-            By <AiSource {...result} />.{" "}
             {result.usedDocuments
               ? "Used recorded document readings, including readings not yet verified; these are not document truth."
               : "No document readings were available."}{" "}

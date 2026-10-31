@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ClipboardList, MessagesSquare } from "lucide-react";
+import { ClipboardList, MessagesSquare, FileUp } from "lucide-react";
 import { StatusBadge } from "@/components/case-badges";
 import { useRequireAccess } from "@/components/data/session";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,7 @@ export function NewReportView() {
   const [error, setError] = useState<string | null>(null);
   if (!allowed) return null;
 
-  async function start(guided = false) {
+  async function start(guided = false, documents = false) {
     setPending(true);
     setError(null);
     const result = await actions.createDraft();
@@ -31,15 +31,37 @@ export function NewReportView() {
       setPending(false);
       return;
     }
-    router.push(`${pages.caseEdit(result.data.id)}${guided ? "&mode=guided" : ""}`);
+    router.push(`${pages.caseEdit(result.data.id)}${guided ? "&mode=guided" : ""}${documents ? "#section-c" : ""}`);
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-7">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">New ADR report</h1>
-        <p className="text-muted-foreground">Choose how you would like to report. Both lead to the same PvPI form.</p>
+        <h1 className="text-3xl font-semibold tracking-tight">How would you like to start?</h1>
+        <p className="mt-2 text-muted-foreground">
+          Choose the approach that works for you. All modes use the same report.
+        </p>
       </div>
+
+      <section className="rounded-xl border border-primary/25 bg-info-soft/50 p-6 sm:p-8">
+        <div className="flex items-start gap-4">
+          <FileUp className="mt-1 size-8 shrink-0 text-primary" aria-hidden />
+          <div>
+            <h2 className="text-xl font-semibold">Start with your documents</h2>
+            <p className="mt-2 max-w-2xl leading-relaxed text-muted-foreground">
+              Read a prescription, lab report or discharge summary, check the suggestions, then complete the remaining
+              details.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 rounded-xl border border-dashed border-primary/30 bg-card/80 p-6 text-center">
+          <FileUp className="mx-auto size-8 text-muted-foreground" aria-hidden />
+          <p className="mt-3 text-sm text-muted-foreground">Photos, prescriptions and PDFs · up to 10 MB per file</p>
+          <Button className="mt-4" type="button" onClick={() => void start(false, true)} disabled={pending}>
+            Start with a document
+          </Button>
+        </div>
+      </section>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col rounded-lg border bg-card p-5">

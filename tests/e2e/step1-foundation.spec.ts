@@ -3,6 +3,7 @@ import { DEMO_ACCOUNTS, DEMO_PASSWORD } from "../../src/lib/demo";
 
 async function signInAs(page: Page, name: string) {
   await page.goto("/login");
+  await page.getByText("Try a demo account", { exact: true }).click();
   await page.getByRole("button", { name: new RegExp(name) }).click();
   await page.waitForURL("**/dashboard");
 }
@@ -23,8 +24,9 @@ test("visitors without a session are sent to the login page", async ({ page }) =
 
 test("a wrong password is rejected with a clear message", async ({ page }) => {
   await page.goto("/login");
+  await page.getByText("Try a demo account", { exact: true }).click();
   await page.getByLabel("Email").fill("pharmacist@demo.test");
-  await page.getByLabel("Password").fill("wrong-password");
+  await page.getByLabel("Password", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   // Next.js renders its own (empty) route-announcer alert, so match ours by its text.
   await expect(page.getByRole("alert").filter({ hasText: "The email or password is incorrect." })).toBeVisible();
@@ -33,11 +35,12 @@ test("a wrong password is rejected with a clear message", async ({ page }) => {
 
 test("typing credentials signs in and signing out ends the session", async ({ page }) => {
   await page.goto("/login");
+  await page.getByText("Try a demo account", { exact: true }).click();
   await page.getByLabel("Email").fill("physician@demo.test");
-  await page.getByLabel("Password").fill(DEMO_PASSWORD);
+  await page.getByLabel("Password", { exact: true }).fill(DEMO_PASSWORD);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL("**/dashboard");
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^(Overview|Review overview)$/ })).toBeVisible();
   await signOut(page);
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login$/);
@@ -78,10 +81,10 @@ test("a reporter's dashboard lists only their own reports", async ({ page }) => 
   await page.goto("/dashboard?q=ADR-00");
   const table = page.getByRole("table");
   for (const own of ["ADR-001", "ADR-002", "ADR-004", "ADR-006", "ADR-008"]) {
-    await expect(table.getByRole("cell", { name: own, exact: true })).toBeVisible();
+    await expect(table.getByRole("link", { name: own, exact: true })).toBeVisible();
   }
   for (const other of ["ADR-003", "ADR-005", "ADR-007"]) {
-    await expect(table.getByRole("cell", { name: other, exact: true })).toHaveCount(0);
+    await expect(table.getByRole("link", { name: other, exact: true })).toHaveCount(0);
   }
 });
 
@@ -90,8 +93,8 @@ test("reviewers see the pool without other people's drafts, serious cases first 
   await expect(page.getByText(/\d+ open urgent escalations?/)).toBeVisible();
   await page.goto("/dashboard?q=ADR-00");
   const table = page.getByRole("table");
-  await expect(table.getByRole("cell", { name: "ADR-002", exact: true })).toHaveCount(0);
-  await expect(table.getByRole("cell", { name: "ADR-007", exact: true })).toHaveCount(0);
+  await expect(table.getByRole("link", { name: "ADR-002", exact: true })).toHaveCount(0);
+  await expect(table.getByRole("link", { name: "ADR-007", exact: true })).toHaveCount(0);
 
   await page.getByLabel("Sort cases").selectOption("serious");
   await page.getByRole("button", { name: "Apply" }).click();
@@ -101,7 +104,7 @@ test("reviewers see the pool without other people's drafts, serious cases first 
 
 test("reviewers who are not urgent contacts do not get the escalation banner", async ({ page }) => {
   await signInAs(page, "Demo Consultant Physician");
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^(Overview|Review overview)$/ })).toBeVisible();
   await expect(page.getByText(/open urgent escalation/)).toHaveCount(0);
 });
 

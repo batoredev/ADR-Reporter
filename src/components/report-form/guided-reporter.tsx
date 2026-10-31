@@ -3,8 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { Button } from "@/components/ui/button";
-import { AiSource } from "@/components/ai/ai-source";
 import { actions } from "@/lib/api/actions";
+import { toolError } from "@/lib/api/tool-error";
 import { GUIDED_STEPS, type GuidedId, type RowList } from "@/lib/domain/guided";
 import type { CaseFormValues } from "@/lib/domain/case-form";
 import type { GuidedSuggestions } from "@/server/workflow/guided";
@@ -206,7 +206,7 @@ export function GuidedReporter({
       {stepId === "medicine-identity" || stepId === "tests" ? extractionSlot : null}
       {error ? (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {toolError(error)}
         </p>
       ) : null}
       <div className="flex flex-wrap gap-2">
@@ -242,13 +242,6 @@ export function GuidedReporter({
           {!suggestions.stepIds.length ? (
             <p>No additional groups suggested. Review completeness before submitting.</p>
           ) : null}
-          {suggestions.provider !== "rules" ? (
-            <p className="text-xs">
-              <AiSource {...suggestions} />
-            </p>
-          ) : (
-            <p className="text-xs">Using the fixed question bank; no AI answer was used.</p>
-          )}
         </div>
       ) : null}
     </section>

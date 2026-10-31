@@ -59,7 +59,7 @@
 }
 
 :root {
-  --background: #ffffff;
+  --background: #f6f8fb;
   --foreground: #0f172a;
   --card: #ffffff;
   --card-foreground: #0f172a;
@@ -88,13 +88,13 @@
   /* Values suggested from documents by AI (always verified by a person). */
   --ai: #6d28d9;
   --ai-soft: #f5f3ff;
-  /* 0.45rem keeps component radii within the 6-10px range. */
-  --radius: 0.45rem;
-  --sidebar: #f8fafc;
+  /* 0.65rem keeps component radii within the 6-10px range. */
+  --radius: 0.65rem;
+  --sidebar: #f3f6fb;
   --sidebar-foreground: #0f172a;
   --sidebar-primary: #2563eb;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eef2f7;
+  --sidebar-accent: #e6eeff;
   --sidebar-accent-foreground: #0f172a;
   --sidebar-border: #e2e8f0;
   --sidebar-ring: #2563eb;
@@ -108,10 +108,34 @@
     @apply font-sans;
   }
   body {
-    @apply bg-background text-sm text-foreground;
+    @apply bg-background text-base text-foreground antialiased;
+  }
+  h1 {
+    @apply tracking-tight;
+  }
+  h2 {
+    @apply tracking-tight;
+  }
+  summary {
+    cursor: pointer;
+  }
+  input,
+  select,
+  textarea {
+    scroll-margin-top: 7rem;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

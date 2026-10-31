@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, FileText, Loader2, ScanText, Sparkles, Upload } from "lucide-react";
+import { AlertTriangle, FileText, Loader2, ScanText, FilePenLine, Upload } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
-import { AiChain, AiSource } from "@/components/ai/ai-source";
+import { AiChain } from "@/components/ai/ai-source";
 import { useServerChange, useSaveDraft } from "@/components/report-form/form-context";
 import { inputClass } from "@/components/report-form/fields";
 import {
@@ -22,6 +22,7 @@ import { AGE_UNIT_LABELS, GENDER_LABELS } from "@/lib/domain/labels";
 import { formatForDisplay } from "@/lib/domain/partial-date";
 import { FileLink, ProtectedFrame, useFileUrl } from "@/components/data/protected-file";
 import { actions, type UploadedDocumentView } from "@/lib/api/actions";
+import { toolError } from "@/lib/api/tool-error";
 import { files } from "@/lib/routes";
 import type { ExtractionView, ProposedValue } from "@/server/workflow/extraction";
 import type { AiStatus } from "@/server/ai/provider";
@@ -173,7 +174,7 @@ export function ExtractionPanel({
     }
     setDocuments((docs) => [result.data, ...docs]);
     if (fileRef.current) fileRef.current.value = "";
-    setMessage(`${result.data.name} uploaded.${ai.available ? " You can now read it with AI." : ""}`);
+    setMessage(`${result.data.name} uploaded.${ai.available ? " You can now read the document." : ""}`);
   }
 
   async function extract(documentId: string) {
@@ -354,11 +355,11 @@ export function ExtractionPanel({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-            <ScanText className="size-4 text-ai" aria-hidden /> Read a document with AI (optional)
+            <ScanText className="size-4 text-ai" aria-hidden /> Read a document
           </h3>
           <p className="text-[13px] text-muted-foreground">
-            Upload a photo or PDF of a fictional prescription, lab report, discharge summary or clinical note. The AI
-            proposes patient details, the reaction, history, tests and medicines; nothing is added until you check it.
+            Upload a photo or PDF of a fictional prescription, lab report, discharge summary or clinical note. Review
+            the suggested details before adding them to your report.
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -396,8 +397,8 @@ export function ExtractionPanel({
                 onClick={() => void extract(d.id)}
                 disabled={!ai.available || busy !== null}
               >
-                {busy === "extract" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />} Read
-                with AI
+                {busy === "extract" ? <Loader2 className="animate-spin" aria-hidden /> : <FilePenLine aria-hidden />}{" "}
+                Read document
               </Button>
             </li>
           ))}
@@ -406,13 +407,12 @@ export function ExtractionPanel({
 
       {busy === "extract" ? (
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground" aria-live="polite">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Reading the document… free services are tried first;
-          this can take up to three minutes.
+          <Loader2 className="size-4 animate-spin" aria-hidden /> Reading the document. This may take a few minutes.
         </p>
       ) : null}
       {error ? (
         <p className="flex items-start gap-1.5 text-sm text-destructive" role="alert">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden /> {error}
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden /> {toolError(error)}
         </p>
       ) : null}
       {message ? (
@@ -427,8 +427,7 @@ export function ExtractionPanel({
             <span className="font-medium">
               {DOCUMENT_TYPE_LABELS[run.documentType]}. Check every suggestion against the document.
             </span>{" "}
-            Suggested by <AiSource provider={run.provider} model={run.model} attempts={run.attempts} />. The AI never
-            decides which medicine is suspected.
+            Choose which medicines are suspected and which are concomitant.
             {run.notes ? <span className="block text-muted-foreground">Note: {run.notes}</span> : null}
           </p>
           <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">

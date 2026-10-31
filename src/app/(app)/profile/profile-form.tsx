@@ -27,24 +27,29 @@ export function ProfileView() {
   return (
     <Loaded state={state}>
       {(profile) => (
-        <div className="mx-auto max-w-2xl space-y-5">
+        <div className="mx-auto max-w-3xl space-y-6">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Profile</h1>
             <p className="text-muted-foreground">
               {describeAccess(user)}
               {profile.designation ? ` · ${profile.designation}` : ""}
             </p>
           </div>
-          <ProfileForm
-            initial={{
-              name: profile.name,
-              email: profile.email,
-              occupation: profile.occupation ?? "",
-              address: profile.address ?? "",
-              pin: profile.pin ?? "",
-              phone: profile.phone ?? "",
-            }}
-          />
+          <div className="rounded-xl border bg-card p-5 sm:p-7">
+            <p className="mb-6 text-sm text-muted-foreground">
+              These details appear in the reporter section when you submit a report.
+            </p>
+            <ProfileForm
+              initial={{
+                name: profile.name,
+                email: profile.email,
+                occupation: profile.occupation ?? "",
+                address: profile.address ?? "",
+                pin: profile.pin ?? "",
+                phone: profile.phone ?? "",
+              }}
+            />
+          </div>
         </div>
       )}
     </Loaded>

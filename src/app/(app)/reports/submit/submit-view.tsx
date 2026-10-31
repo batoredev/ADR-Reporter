@@ -8,6 +8,7 @@ import { AiReviewSummary } from "@/components/ai/ai-review-summary";
 import { CaseSummary } from "@/components/case/case-summary";
 import { StatusBadge } from "@/components/case-badges";
 import { Button } from "@/components/ui/button";
+import { WorkspaceTabs, WorkspaceTabPanel } from "@/components/ui/workspace-tabs";
 import { Loaded, PageError, PageLoading } from "@/components/data/page-state";
 import { FileLink, ProtectedFrame } from "@/components/data/protected-file";
 import { ApiError } from "@/lib/api/client";
@@ -35,27 +36,39 @@ export function SubmitReportView() {
         return (
           <div className="mx-auto max-w-6xl space-y-5">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">Review and submit {d.caseNumber}</h1>
+              <h1 className="text-3xl font-semibold tracking-tight">Review and submit {d.caseNumber}</h1>
               <StatusBadge status={d.status} />
             </div>
 
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-              <div className="min-w-0 space-y-4">
-                <div className="overflow-hidden rounded-lg border bg-card">
-                  <div className="flex items-center justify-between border-b px-4 py-2">
-                    <h2 className="text-sm font-semibold">PvPI form preview (draft)</h2>
-                    <FileLink path={files.casePdf(id)} className="text-sm">
-                      Open PDF
-                    </FileLink>
-                  </div>
-                  <ProtectedFrame
-                    path={files.casePdf(id)}
-                    title="PvPI form preview"
-                    className="h-[70vh] w-full bg-secondary"
-                  />
-                </div>
-                <AiReviewSummary events={d.aiEvents} />
-                <CaseSummary snapshot={preview} />
+              <div className="min-w-0">
+                <WorkspaceTabs
+                  label="Report preview"
+                  tabs={[
+                    { value: "summary", label: "Report summary" },
+                    { value: "pdf", label: "PDF preview" },
+                  ]}
+                >
+                  <WorkspaceTabPanel value="summary" className="space-y-4">
+                    <AiReviewSummary events={d.aiEvents} />
+                    <CaseSummary snapshot={preview} />
+                  </WorkspaceTabPanel>
+                  <WorkspaceTabPanel value="pdf">
+                    <div className="overflow-hidden rounded-lg border bg-card">
+                      <div className="flex items-center justify-between border-b px-4 py-2">
+                        <h2 className="text-sm font-semibold">PvPI form preview (draft)</h2>
+                        <FileLink path={files.casePdf(id)} className="text-sm">
+                          Open PDF
+                        </FileLink>
+                      </div>
+                      <ProtectedFrame
+                        path={files.casePdf(id)}
+                        title="PvPI form preview"
+                        className="h-[70vh] w-full bg-secondary"
+                      />
+                    </div>
+                  </WorkspaceTabPanel>
+                </WorkspaceTabs>
               </div>
 
               <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
