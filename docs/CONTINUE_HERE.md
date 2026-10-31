@@ -12,7 +12,7 @@ The application branch is **`claude/compassionate-wright-7bah72`**, the reposito
 | --- | --- | --- |
 | Focused UI redesign and plain product copy | Complete, pushed | `911273b` |
 | Persistent chatbot reporting and batch extraction | Complete, pushed | `2023f3e` |
-| Supervised extraction learning | Incomplete draft, saved separately; not deployed | `wip/supervised-extraction-pipeline` branch |
+| Supervised extraction learning | Incomplete draft, saved separately; not deployed | `20be188` on `wip/supervised-extraction-pipeline` |
 
 The chatbot implementation is complete. **Hosted activation still requires the user to run the Supabase setup below.** No hosted schema changes, secret changes or API deployment were performed during this delivery. A successful API health response alone does not prove the new chatbot API is deployed; it must include `features.reportChat: true`.
 
@@ -81,6 +81,10 @@ Conversation, uploads and apply actions use idempotency identifiers. Job leases 
 ## Verification evidence
 
 The chatbot delivery passed the full **105-test unit/database suite and 19 browser tests**, followed by three additional database checks for exhausted job recovery, extra approximate-date facts and safe medicine-role handling. The final chatbot-focused subset contains **16 unit/database checks**. Both document and free-text chat smoke checks passed against the configured live service using fictional input. Static production export, API build and lint passed.
+
+At the wrap-up checkpoint, the entire updated **108-test unit/database suite**, lint and all **three chatbot browser tests** passed again on the application branch. The browser checks cover batch photos/multi-page PDFs becoming verified form details without duplicate medicines, phone refresh recovery, and safe fallback when a hosted API has not enabled chat.
+
+The production static export and API bundle were then rebuilt successfully. The static output was checked to contain the hosted API address and no browser-test API address. Private deployment files and local ML artifacts remain ignored by Git.
 
 Automated workflow tests use fixture replies and an isolated local database. They establish workflow behavior; they do not establish clinical extraction accuracy. Human source review remains necessary. Uploads, rejected suggestions and report edits do **not** automatically train weights.
 

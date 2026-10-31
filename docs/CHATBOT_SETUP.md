@@ -1,6 +1,6 @@
 # Chatbot delivery: deployment and testing
 
-The UI delivery is commit `911273b`. The chatbot is a separate delivery. All data in this phase is fictional/testing data, English only, with no paid compute. Clinical use and clinical validation are outside this delivery.
+The UI delivery is commit `911273b`; the completed chatbot delivery is `2023f3e`. See [CONTINUE_HERE.md](CONTINUE_HERE.md) for the current handoff and saved unfinished ML work. All data in this phase is fictional/testing data, English only, with no paid compute. Clinical use and clinical validation are outside this delivery.
 
 ## Run this from PowerShell in the repository
 
@@ -48,5 +48,7 @@ Sources: [PDF.js rendering documentation](https://mozilla.github.io/pdf.js/examp
 ## Verification and limits
 
 Validated with 19 passing browser checks, the 105-test unit/database regression suite and three additional recovery/date/medicine-role tests. `npm run ai:chat-check` passed against the configured live provider using the fictional prescription and a fictional multi-field message. The production static export and API bundle build passed.
+
+The wrap-up check reran the full updated 108-test unit/database suite, all three chatbot browser checks and lint successfully. Deployment preparation was rerun locally and preserved the worker secret; it made no hosted changes.
 
 Automated tests use saved replies, isolated PostgreSQL and fictional documents. They verify workflow correctness rather than clinical extraction accuracy. Provider output can still be wrong; source review remains necessary. Uploads and saved corrections do not automatically retrain a model. The supervised training/release pipeline is the third delivery and requires independently checked document labels for a meaningful trained extractor.

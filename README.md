@@ -2,6 +2,8 @@
 
 The report assistant supports batch uploads and questions for missing details. [Deploy the chatbot update](docs/CHATBOT_SETUP.md) before enabling it on an existing hosted installation. (prototype)
 
+**Continuing this project:** read [the current handoff](docs/CONTINUE_HERE.md) and [execution plan](docs/CHATBOT_ML_EXECUTION.md). The UI and chatbot are implemented and pushed. Hosted chatbot activation awaits the user-run Supabase setup. The unfinished ML draft is saved on a separate WIP branch; it is not deployed.
+
 AI-assisted adverse drug reaction (ADR) reporting and institutional verification, aligned with the
 **PvPI Suspected ADR Reporting Form, version 1.4**.
 
@@ -29,10 +31,12 @@ AI-assisted adverse drug reaction (ADR) reporting and institutional verification
    year, year only, or approximate, and the official form never gets a made-up day. Fields that are genuinely unknown
    can be marked "Unknown". A completeness panel lists the mandatory fields that are still missing.
 2. **AI assistance.** Choose guided questions or the structured form; both save the same answers. Upload fictional
-   prescriptions, lab reports, discharge summaries or notes and select **Read with AI**. Verify each suggested value
-   and its source text before applying it. Rough notes can become an editable narrative for item 7. **Check with AI**
+   prescriptions, lab reports, discharge summaries or notes and select **Read document**. Verify each suggested value
+   and its source text before applying it. Rough notes can become an editable narrative for item 7. **Check report**
    suggests contradictions and gaps, and saves your decisions for the reviewer. Draft narratives and extraction
    suggestions can be reopened after reload. AI does not determine causality or make submission decisions.
+   The **Report assistant** accepts a batch of photos and PDFs, keeps page-by-page reading progress and presents
+   source-linked details for confirmation. It asks for the remaining applicable details and saves into the same form.
 3. **Urgent escalation.** A potentially serious report can be escalated at any time, even as an incomplete draft. The
    designated urgent contacts are alerted without waiting for review. They acknowledge it, record any urgent
    notification made outside the app, and close it.
