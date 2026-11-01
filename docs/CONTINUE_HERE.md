@@ -1,6 +1,13 @@
 # Start here: project handoff
 
-Checkpoint: 31 October 2026. The user asked to finish the chatbot and wrap up for now, preserving the plan so another agent can continue. **Do not continue building ML merely because it was in the earlier plan; wait for the user's next instruction to resume it.**
+Latest checkpoint: 1 November 2026, before the official prototype testing. The report assistant fills the report
+directly with one final confirmation (see `docs/CHATBOT_SETUP.md`, "How the assistant fills the report"); it was
+re-tested on the live site with the reporter's own cases (duplicate medicines, misspelt nasal spray, missing roles).
+Branding: the supplied sparkle logo and favicon, accent `#e24704` (buttons and link text `#c63e04` for WCAG AA
+contrast). Hosted API deploys are manual: paste `supabase/functions/api/index.ts` in the Supabase dashboard. Every
+reported issue has a regression test in `tests/unit` or `tests/integration/report-chat.test.ts`.
+
+Earlier checkpoint: 31 October 2026. The user asked to finish the chatbot and wrap up for now, preserving the plan so another agent can continue. **Do not continue building ML merely because it was in the earlier plan; wait for the user's next instruction to resume it.**
 
 ## Delivered and pushed
 

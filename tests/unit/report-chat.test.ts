@@ -250,6 +250,9 @@ describe("checks added after the reporter's live tests (1 November 2026)", () =>
     expect(equivalentValues("dose", "1 cap", "1 capsule")).toBe(true);
     expect(equivalentValues("dose", "500mg", "500 mg")).toBe(true);
     expect(equivalentValues("route", "orally", "Oral")).toBe(true);
+    expect(equivalentValues("indication", "for fever", "fever")).toBe(true);
+    expect(equivalentValues("indication", "Dx: Acute sinusitis", "acute sinusitis")).toBe(true);
+    expect(equivalentValues("indication", "fever", "sinusitis")).toBe(false);
     expect(equivalentValues("dose", "1 cap", "500 mg")).toBe(false);
     expect(equivalentValues("outcome", "RECOVERED", "recovered")).toBe(false);
   });
@@ -264,6 +267,52 @@ describe("checks added after the reporter's live tests (1 November 2026)", () =>
     expect(needsEvidenceCheck("batchLot", "HND0361A", "Batch No.: HND0361A")).toBe(false);
     expect(needsEvidenceCheck("expiryDate", "2027-10", "Mfg. Date: 10/2027")).toBe(true);
     expect(needsEvidenceCheck("expiryDate", "2027-10", "Expiry Date: 10/2027")).toBe(false);
+  });
+
+  it("does not ask for a second look at answers that were understood correctly", () => {
+    // From the live test: these were correct but were flagged "Check it is right".
+    expect(needsEvidenceCheck("reactionTerms", "nose bleeding, headache", "nose bleeding and headache")).toBe(false);
+    expect(needsEvidenceCheck("reactionTerms", "sneezing, nose irritation", "sneezing and nose irritation")).toBe(
+      false,
+    );
+    expect(needsEvidenceCheck("actionTaken", "DRUG_WITHDRAWN", "flutifer was stopped")).toBe(false);
+    expect(needsEvidenceCheck("actionTaken", "DRUG_WITHDRAWN", "stopped the spray")).toBe(false);
+    expect(needsEvidenceCheck("outcome", "RECOVERED", "He recovered on 28 Oct 2026")).toBe(false);
+    expect(needsEvidenceCheck("seriousAnswer", "NO", "Not serious")).toBe(false);
+    expect(needsEvidenceCheck("rechallenge", "NOT_REINTRODUCED", "it was not given again")).toBe(false);
+    expect(needsEvidenceCheck("historyFlags", '["ALLERGY"]', "allergic to sulfa drugs")).toBe(false);
+    // ...but still flags readings the words do not support.
+    expect(needsEvidenceCheck("reactionTerms", "Anaphylaxis", "rash")).toBe(true);
+    expect(needsEvidenceCheck("actionTaken", "DOSE_REDUCED", "flutifer was stopped")).toBe(true);
+    expect(needsEvidenceCheck("outcome", "RECOVERED", "not yet recovered")).toBe(true);
+    expect(needsEvidenceCheck("seriousAnswer", "YES", "not serious")).toBe(true);
+    expect(needsEvidenceCheck("seriousAnswer", "NO", "nose bleeding")).toBe(true);
+    expect(needsEvidenceCheck("historyFlags", '["ALLERGY"]', "no known allergies")).toBe(true);
+    expect(needsEvidenceCheck("historyFlags", '["HEPATIC_DYSFUNCTION"]', "no liver problems")).toBe(true);
+    expect(needsEvidenceCheck("seriousnessCriteria", '["LIFE_THREATENING"]', "not life-threatening")).toBe(true);
+  });
+
+  it("asks about another medicine once, as one optional question, never detail by detail", () => {
+    const values = form({
+      reactionDescription: "Rash",
+      reactionManagement: "Stopped",
+      medicalHistory: "None",
+      suspectedMedicines: [],
+      concomitantProducts: [
+        { ...form().suspectedMedicines[0], name: "Salbutamol inhaler", route: "Inhalation" } as never,
+      ],
+    });
+    values.suspectedMedicines = [];
+    const state = chatState({});
+    state.skipOptional = false;
+    const questions: string[] = [];
+    let question = nextQuestion(values, state, []);
+    for (let i = 0; i < 20 && question; i++) {
+      if (question.entityName === "Salbutamol inhaler") questions.push(question.text);
+      deferQuestion(values, state, question);
+      question = nextQuestion(values, state, []);
+    }
+    expect(questions).toEqual(["For Salbutamol inhaler: what dose, how often and for what? (optional)"]);
   });
 
   it("replaces a note in place so re-applying never reorders the saved state", () => {

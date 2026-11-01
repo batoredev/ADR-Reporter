@@ -262,6 +262,49 @@ export function factKey(f: Pick<ChatFact, "entityKey" | "field">) {
   return `${f.entityKey}.${f.field}`;
 }
 
+const FILLER_WORDS = new Set(["and", "with", "the", "of", "a", "an", "on", "in", "to", "had", "has", "have"]);
+/** Unless negated ("no liver problems", "not serious"). */
+const unless = (negation: string, pattern: string) =>
+  new RegExp(`^(?!.*\\b(?:${negation})\\b).*\\b(?:${pattern})`, "i");
+const NEGATED_FINDING = "no|not|denies|denied|without|normal|nil|none";
+/** Words that make a listed option clear in its source quote. */
+const ENUM_CUES: Record<string, RegExp> = {
+  "actionTaken:DRUG_WITHDRAWN": /\b(?:stop\w*|discontinu\w*|withdr\w*|withheld|ceased|held|taken off)\b/i,
+  "actionTaken:DOSE_REDUCED": /\b(?:reduc\w*|lower\w*|decreas\w*|taper\w*)\b/i,
+  "actionTaken:DOSE_INCREASED": /\b(?:increas\w*|raised|higher dose)\b/i,
+  "actionTaken:DOSE_NOT_CHANGED": /\b(?:continu\w*|unchanged|not changed|same dose|kept on)\b/i,
+  "outcome:RECOVERED": unless(
+    "not (?:yet )?recovered|not resolved",
+    "recovered|resolved|cleared|disappeared|subsided|fine now|well now|back to normal",
+  ),
+  "outcome:RECOVERING": /\b(?:recovering|improv\w*|better|settling|resolving)\b/i,
+  "outcome:NOT_RECOVERED":
+    /\b(?:not (?:yet )?(?:recovered|resolved|better|improved)|no improvement|persist\w*|wors\w*|ongoing|still)\b/i,
+  "outcome:RECOVERED_WITH_SEQUELAE": /\b(?:sequel\w*|scar\w*|permanent|residual|lasting)\b/i,
+  "outcome:FATAL": /\b(?:died|death|fatal|expired|passed away)\b/i,
+  "seriousAnswer:NO": /\b(?:not serious|non[- ]?serious|mild|minor|no)\b/i,
+  "seriousAnswer:YES": unless(
+    "not serious|non[- ]?serious|not life",
+    "serious|hospital\\w*|admitted|life[- ]threatening|death|died|disab\\w*|icu",
+  ),
+  "rechallenge:NOT_REINTRODUCED":
+    /\b(?:not (?:given|restarted|re-?started|reintroduced|used|taken) again|not reintroduced|never (?:given|restarted|used|taken) again|no rechallenge|not re-?challenged)\b/i,
+  "rechallenge:YES": unless("did not|didn'?t|no recurrence", "came back|recurred|reappeared|returned|happened again"),
+  "rechallenge:NO":
+    /\b(?:did not (?:come back|recur|reappear|return)|didn'?t (?:come back|recur|reappear|return)|no recurrence)\b/i,
+  "historyFlags:ALLERGY": unless(NEGATED_FINDING, "allerg\\w*"),
+  "historyFlags:PREGNANCY": unless(NEGATED_FINDING, "pregnan\\w*"),
+  "historyFlags:ADDICTION": unless(NEGATED_FINDING, "addict\\w*|alcohol\\w*|smok\\w*|tobacco|drug abuse|substance"),
+  "historyFlags:HEPATIC_DYSFUNCTION": unless(NEGATED_FINDING, "liver|hepat\\w*|cirrhosis|jaundice"),
+  "historyFlags:RENAL_DYSFUNCTION": unless(NEGATED_FINDING, "kidney|renal|ckd|dialysis|nephr\\w*"),
+  "seriousnessCriteria:DEATH": /\b(?:died|death|fatal|expired|passed away)\b/i,
+  "seriousnessCriteria:LIFE_THREATENING": unless("not", "life[- ]threatening"),
+  "seriousnessCriteria:HOSPITALISATION": unless(NEGATED_FINDING, "hospital\\w*|admitted|admission|icu"),
+  "seriousnessCriteria:DISABILITY": unless(NEGATED_FINDING, "disab\\w*|incapacit\\w*"),
+  "seriousnessCriteria:CONGENITAL_ANOMALY": unless(NEGATED_FINDING, "congenital|birth defect"),
+  "seriousnessCriteria:OTHER_MEDICALLY_IMPORTANT": /\b(?:medically important|important medical)\b/i,
+};
+
 /** Conservative quote checks flag transformations; they never certify what an image says. */
 export function needsEvidenceCheck(field: string, value: string, quote: string): boolean {
   if (!quote.trim()) return true;
@@ -313,7 +356,25 @@ export function needsEvidenceCheck(field: string, value: string, quote: string):
     const sourceTokens = new Set(tokens(tidyMedicineName(quote)));
     return tokens(tidyMedicineName(value)).some((token) => !sourceTokens.has(token));
   }
+  // A listed option is clear when the words say it ("flutifer was stopped": Drug withdrawn).
+  const cue = ENUM_CUES[`${field}:${value}`];
+  if (cue) return !cue.test(quote);
+  if (ARRAY_FIELDS.has(field)) {
+    try {
+      const items: unknown = JSON.parse(value);
+      if (Array.isArray(items) && items.length)
+        return !items.every((item) => ENUM_CUES[`${field}:${String(item)}`]?.test(quote));
+    } catch {}
+    return true;
+  }
   if (canonical(quote).includes(canonical(value))) return false;
+  // Free text made of the reporter's own words ("nose bleeding and headache" as "nose bleeding, headache").
+  if (!FIELD_OPTIONS[field] && !BOOLEAN_FIELDS.has(field)) {
+    const words = (text: string) => (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((w) => !FILLER_WORDS.has(w));
+    const source = new Set(words(quote));
+    const own = words(value);
+    if (own.length && own.every((w) => source.has(w))) return false;
+  }
   // "nassal spary" clearly says Nasal.
   if (field === "route" && inferRoute([quote])?.route === normalizeRoute(value)) return false;
   if (BOOLEAN_FIELDS.has(field)) {
@@ -665,8 +726,32 @@ export function equivalentValues(field: string, a: string, b: string): boolean {
   if (field === "name") return sameMedicine(x, y);
   if (field === "route") return normalizeRoute(x).toLowerCase() === normalizeRoute(y).toLowerCase();
   if (field === "frequency" && frequencyCode(x) && frequencyCode(x) === frequencyCode(y)) return true;
-  return canonicalText(x) === canonicalText(y);
+  if (canonicalText(x) === canonicalText(y)) return true;
+  // The same words apart from fillers: "for fever" and "fever", "Dx: Acute sinusitis" and "acute sinusitis".
+  const meaningful = (text: string) =>
+    new Set(
+      (text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+        .map((w) => (/^caps?$/.test(w) ? "capsule" : /^tabs?$/.test(w) ? "tablet" : w))
+        .filter((w) => !EQUIVALENT_FILLERS.has(w)),
+    );
+  const [wx, wy] = [meaningful(x), meaningful(y)];
+  return wx.size > 0 && wx.size === wy.size && [...wx].every((w) => wy.has(w));
 }
+const EQUIVALENT_FILLERS = new Set([
+  "for",
+  "to",
+  "of",
+  "the",
+  "a",
+  "an",
+  "and",
+  "with",
+  "dx",
+  "diagnosis",
+  "as",
+  "in",
+  "on",
+]);
 
 /** Sentences of a message; "Inj. Ceftriaxone", "Tab. X" and initials such as "R.K." do not end a sentence. */
 export function splitSentences(text: string): string[] {
@@ -850,14 +935,6 @@ export function nextQuestion(
         'Any relevant medical history, allergies, pregnancy, or liver or kidney problems? Say "none" if not.',
       ),
     );
-  for (const m of named(values.concomitantProducts)) {
-    if (duplicate.has(entityKey("medicine", m.name))) continue;
-    const u = new Set(m.unknownFields);
-    if (!m.dose.trim() && !u.has("dose"))
-      questions.push(ask("medicine", m.name, "dose", `What dose of ${m.name} was given?`));
-    if (!m.frequency.trim() && !u.has("frequency"))
-      questions.push(ask("medicine", m.name, "frequency", `How often was ${m.name} given?`));
-  }
 
   // Optional details: grouped, and skipped altogether when the reporter asks.
   if (!state.skipOptional) {
@@ -880,20 +957,32 @@ export function nextQuestion(
           ),
         );
     }
+    // Other medicines: one optional question each, never one question per detail.
+    const asks: Record<string, string> = {
+      dose: "what dose",
+      frequency: "how often",
+      route: "how it was taken",
+      startDate: "since when",
+      indication: "for what",
+    };
     for (const m of named(values.concomitantProducts)) {
-      if (m.usedToTreatReaction) continue;
-      const fields = ["route", "startDate", "indication"].filter((field) => {
+      if (duplicate.has(entityKey("medicine", m.name))) continue;
+      const fields = (
+        m.usedToTreatReaction ? ["dose", "frequency"] : ["dose", "frequency", "route", "startDate", "indication"]
+      ).filter((field) => {
         const value = (m as unknown as Record<string, unknown>)[field];
         const filled = typeof value === "string" ? value.trim() : (value as { value?: string }).value;
         return !filled && !m.unknownFields.includes(field);
       });
+      const parts = fields.map((f) => asks[f]);
+      const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
       if (fields.length)
         questions.push(
           ask(
             "medicine",
             m.name,
             "otherDetails",
-            `For ${m.name}: how was it taken, since when, and for what? (optional)`,
+            `For ${m.name}${m.usedToTreatReaction ? " (given for the reaction)" : ""}: ${list}? (optional)`,
             {
               kind: "group",
               fields,

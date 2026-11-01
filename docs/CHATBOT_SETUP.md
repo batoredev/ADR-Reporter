@@ -70,8 +70,18 @@ the whole report once, on **Review and submit** (the declaration covers everythi
   prednisone/prednisolone) are never merged; they are flagged.
 - A new medicine is placed only after one question: suspected, another medicine, given to treat the reaction, or not
   relevant. Medicines described as given for the reaction are placed as treatment without asking.
-- The route is filled in from an unambiguous dosage form (nasal spray → Nasal, eye drops → Ophthalmic, tablet → Oral);
-  an injection without IV/IM/SC is asked.
+- The route is filled in from an unambiguous dosage form (nasal spray → Nasal, eye drops → Ophthalmic, tablet → Oral),
+  also when it is misspelt or misread ("flutifer nassal spary", a handwritten "Nanal spry … every nostril"); an
+  injection without IV/IM/SC, or a "spray" alone, is asked. Misspelt form words are corrected in the saved name; the
+  medicine's own name is never changed.
+- A medicine written with a form or strength in a message ("Moxifloxacin eye drops", "metformin 500 mg") is never
+  dropped, even when the AI reading misses it. An AI-suggested role is used only when the reporter's words say it
+  ("she was also taking…", "…was stopped after the rash"); otherwise the role is asked.
+- Other medicines get one optional question each (dose, frequency, route, since when, what for), not one per detail.
+- Values that agree in other words are not reported as differing ("TDS" / "three times a day", "1 cap" / "1 capsule",
+  "for fever" / "fever"). One medicine written with different strengths (Paracetamol 500 mg, Dolo 650) is flagged.
+- Medicine packs: a licence number read as the batch, a manufacturing date read as the expiry, or an expiry before the
+  reaction started are flagged.
 - "Not sure", "n/a", "don't know" and similar answers are recorded as not known; they are never saved as values, and an
   optional question is skipped after two answers that cannot be used. Optional questions can be skipped together.
 - Unclear readings, differing sources, held documents and similar names are listed under **Please take a quick look**
@@ -82,8 +92,8 @@ the whole report once, on **Review and submit** (the declaration covers everythi
 1. Start a conversation or continue an existing draft with the report assistant.
 2. Select/drop JPG, PNG and PDF files together: at most 20 files, 10 MB each, 50 MB per batch; PDFs at most 20 pages each and 100 pages per batch. Byte-identical files are deduplicated within the report.
 3. Originals are saved atomically. Every PDF page is rendered locally using PDF.js, saved independently, and queued with its real page number. A refresh resumes missing pages. Each queued page has a lease, bounded retries and a separate retry control.
-4. Source quotes, page numbers, differing values and unclear readings remain visible. Users choose medicine roles and confirm identity mismatches. Nothing is silently selected from conflicting sources.
-5. Confirm selected details to fill the shared form atomically. Required versions and conversation revisions prevent stale writes; message/upload/apply identifiers prevent duplicate operations.
+4. Details fill the shared form as they are read or answered. Source quotes, page numbers, differing values and unclear readings stay visible under **Please take a quick look**. Reporters choose medicine roles and confirm documents with different patient initials.
+5. Required versions and conversation revisions prevent stale writes; message and upload identifiers prevent duplicate operations. The reporter confirms the whole report once, on **Review and submit**.
 6. The question planner asks only unanswered applicable fields. A free-text answer can propose several facts, but each needs a quote present in the answer and must use an allowed field. Explicit unavailable answers remain distinct from missing mandatory information.
 7. Continue in the form, run checks, draft a narrative, review/submit, complete institutional review and generate PDFs through the existing workflow.
 
