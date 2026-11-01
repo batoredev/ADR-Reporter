@@ -2,7 +2,31 @@
 
 The UI delivery is commit `911273b`; the completed chatbot delivery is `2023f3e`. See [CONTINUE_HERE.md](CONTINUE_HERE.md) for the current handoff and saved unfinished ML work. All data in this phase is fictional/testing data, English only, with no paid compute. Clinical use and clinical validation are outside this delivery.
 
-## Run this from PowerShell in the repository
+## Activate it on the websites only (no computer setup)
+
+Everything happens in the Supabase dashboard; GitHub is only used to copy files. Nothing is installed locally.
+
+1. **Database tables.** Open `supabase/migrations/007_chat_reporting.sql` on GitHub, select **Copy raw file**, paste it
+   into Supabase **SQL Editor → New query** and select **Run**. It adds the report assistant's tables and is safe to
+   rerun.
+2. **Background worker.** Do the same with `supabase/migrations/008_chat_worker_schedule.sql`. It enables `pg_cron`
+   and `pg_net`, creates a random worker secret inside Supabase Vault and schedules the reading queue once a minute.
+   The result shows one value, `chat_worker_secret`. The file itself contains no secret, so it is public; the value it
+   shows is private.
+3. **Secrets.** In **Edge Functions → Secrets**, add `CHAT_WORKER_SECRET` with the value from step 2. To read PDF
+   files, also add `GEMINI_API_KEY` (Ollama reads photos only). Keep `OLLAMA_API_KEY` as it is.
+4. **API.** Open **Edge Functions → api → Code**, replace everything with `supabase/functions/api/index.ts` (copy raw
+   file from GitHub) and select **Deploy**. Keep **Verify JWT** off.
+5. **Check.** <https://keoojymdmpnrwlmngaro.supabase.co/functions/v1/api/health> should show
+   `{"ok":true,"features":{"reportChat":true}}`. The website (Cloudflare Pages) already contains the assistant and
+   switches it on once the API reports this.
+
+If step 2 reports that an extension is unavailable, enable `pg_cron` and `pg_net` under **Database → Extensions**,
+then run the file again. Before release these steps were checked on Supabase's own PostgreSQL image (all SQL files
+001-008 in order, reruns, the Vault secret and a real scheduled run) and the generated API was run in Supabase's Edge
+Runtime (batch upload, PDF page, reading jobs, applying details, follow-up question, PvPI PDF, worker secret check).
+
+## Or run this from PowerShell in the repository
 
 ```powershell
 npm ci

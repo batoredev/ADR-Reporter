@@ -29,7 +29,9 @@ The chatbot implementation is complete. **Hosted activation still requires the u
 
 ## Activate the delivered chatbot
 
-Follow [CHATBOT_SETUP.md](CHATBOT_SETUP.md). From PowerShell in the application checkout:
+Follow [CHATBOT_SETUP.md](CHATBOT_SETUP.md). The user works on the Supabase/Cloudflare/GitHub websites; its first
+section activates everything in the Supabase dashboard (run `007` and `008` in the SQL Editor, add `CHAT_WORKER_SECRET`,
+paste the API). Alternatively, from PowerShell in the application checkout:
 
 ```powershell
 npm ci

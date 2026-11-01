@@ -1,6 +1,8 @@
 # Supabase database for ADR Reporter
 
-> The chatbot upgrade adds `007_chat_reporting.sql`. Existing projects should follow [the chatbot deployment guide](../docs/CHATBOT_SETUP.md); the older AI-only update below needed no migration.
+> The report assistant (chatbot) adds `007_chat_reporting.sql` and `008_chat_worker_schedule.sql`. An existing project
+> runs just those two; see [the chatbot deployment guide](../docs/CHATBOT_SETUP.md). The older AI-only update needed no
+> migration.
 
 This folder sets up the app's PostgreSQL database on [Supabase](https://supabase.com): all tables, the database rules,
 and the fictional demo data. You can do everything on the Supabase website; nothing needs to run on your computer.
@@ -16,6 +18,8 @@ supabase/
     004_prisma_migration_history.sql  tells Prisma that 001-003 are already applied
     005_lock_down_data_api.sql        closes Supabase's public Data API to every table
     006_demo_data.sql                 fictional demo accounts and cases
+    007_chat_reporting.sql            report assistant: conversations, upload batches, PDF pages, reading jobs
+    008_chat_worker_schedule.sql      runs the reading jobs once a minute; creates the worker secret in Vault
 ```
 
 ## Set up the database on the Supabase website
@@ -23,10 +27,11 @@ supabase/
 1. **Create a project:** on supabase.com select **New project**. For the database password use letters and numbers
    only, since symbols such as `@ # / ? %` break the connection string, and save it. Choose the region nearest your users
    (for India: South Asia (Mumbai)). Wait until the project is ready.
-2. **Run the six files, in order (001 to 006):** for each file:
+2. **Run the eight files, in order (001 to 008):** for each file:
    1. Open it on GitHub (in `supabase/migrations/`) and select **Copy raw file** (the copy icon above the file).
    2. In Supabase, open **SQL Editor → New query**, paste, and select **Run**.
-   3. Wait for "Success. No rows returned" before moving to the next file.
+   3. Wait for "Success. No rows returned" before moving to the next file. (008 ends by showing one value,
+      `chat_worker_secret`: copy it into **Edge Functions → Secrets** as `CHAT_WORKER_SECRET`.)
 
    If Supabase warns about destructive operations, confirm and run it. The warning comes from words like `DELETE` in
    the safety rules (which stop the audit log from being changed); nothing is deleted.
@@ -38,7 +43,8 @@ supabase/
    URI, replace `[YOUR-PASSWORD]` with your password, and add `?sslmode=require` at the end. You only need it to
    connect from your own computer; the Edge Function connects by itself.
 
-Running `006_demo_data.sql` a second time does nothing: it stops with "Demo data is already loaded".
+Running `006_demo_data.sql` a second time does nothing: it stops with "Demo data is already loaded". `007` and `008`
+are also safe to rerun; `008` keeps the existing worker secret and replaces its schedule instead of adding another.
 
 ## Sign in
 
@@ -72,7 +78,8 @@ either the CLI or the SQL Editor for a project, not both, because each keeps its
 The source of truth is the Prisma schema (`prisma/schema.prisma`) and its migrations in `prisma/migrations/`. The
 files 001-003 here are the same SQL. For a new Prisma migration:
 
-1. Add its `migration.sql` here as the next numbered file (`007_...sql`).
+1. Add its `migration.sql` here as the next numbered file (`009_...sql`). `npm run chatbot:prepare` shows how
+   `007_chat_reporting.sql` was generated from its Prisma migration, guarded so it is safe to rerun.
 2. In the same file, record it in Prisma's history like `004_prisma_migration_history.sql` does: insert a row whose
    `migration_name` is the Prisma folder name and whose `checksum` is the SHA-256 of that `migration.sql`
    (`sha256sum prisma/migrations/<folder>/migration.sql`).

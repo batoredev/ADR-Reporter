@@ -211,18 +211,22 @@ only setting in the repository is the public API address in `.env.production`.
 
 ### 1. Supabase
 
-1. **Database:** run the six SQL files in `supabase/migrations/` in the SQL Editor, in order (see
-   [`supabase/README.md`](supabase/README.md)).
+1. **Database:** run the SQL files in `supabase/migrations/` in the SQL Editor, in order, 001 to 008 (see
+   [`supabase/README.md`](supabase/README.md)). A project that already has 001–006 needs only 007 (report assistant
+   tables) and 008 (its background worker). The last statement of 008 shows a worker secret for step 4.
 2. **Edge Function:** go to **Edge Functions → Deploy a new function → Via Editor**. Name it `api`, replace the
    editor's code with the whole of `supabase/functions/api/index.ts`, and deploy.
 3. **Turn off JWT verification** for `api`, in the function's settings. The app signs users in with its own tokens.
-4. **Optional:** add secrets under **Edge Functions → Secrets**:
-   - `AI_PROVIDER` = `auto`, `OLLAMA_API_KEY` and/or `GEMINI_API_KEY`, for live AI;
+4. **Secrets** under **Edge Functions → Secrets**:
+   - `CHAT_WORKER_SECRET` = the value shown by `008_chat_worker_schedule.sql`, for background reading of uploads;
+   - `AI_PROVIDER` = `auto`, `OLLAMA_API_KEY` and/or `GEMINI_API_KEY`, for live AI (`GEMINI_API_KEY` is needed to
+     read PDF files; Ollama reads photos only);
    - `ANTHROPIC_API_KEY` only if you explicitly enable the paid code switch and redeploy;
    - `DEMO_MODE` = `false`, to hide the demo accounts;
    - `FORM_TEMPLATE_URL`, if the website is not at `https://adr-reporter.pages.dev`.
 
-Check it: `https://<project>.supabase.co/functions/v1/api/health` should show `{"ok":true}`.
+Check it: `https://<project>.supabase.co/functions/v1/api/health` should show
+`{"ok":true,"features":{"reportChat":true}}`. Without `features`, an older version of the function is still running.
 
 ### 2. Cloudflare Pages
 
@@ -257,7 +261,7 @@ src/lib/domain/       shared rules: form, dates, completeness, seriousness, acce
 src/server/api/       the API: routes, sign-in tokens, files (runs as the Supabase Edge Function)
 src/server/workflow/  case lifecycle: drafts, review, escalation, submissions, extraction
 src/server/pdf/       fills the official PvPI form
-src/server/ai/        AI providers (anthropic, fixture)
+src/server/ai/        AI router and providers: Ollama, Gemini, Claude (off by code switch), saved test replies
 src/server/           database, sessions, audit log, file storage (in the database)
 scripts/              API bundle build, static preview server, test-database helper
 supabase/             SQL migrations and the generated Edge Function (supabase/README.md)
