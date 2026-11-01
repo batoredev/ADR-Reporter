@@ -47,7 +47,7 @@ export function NewReportView() {
         </p>
       </div>
 
-      <section className="rounded-xl border border-primary/25 bg-info-soft/50 p-6 sm:p-8">
+      <section className="rounded-xl border border-primary/25 bg-brand-soft/60 p-6 sm:p-8">
         <div className="flex items-start gap-4">
           <FileUp className="mt-1 size-8 shrink-0 text-primary" aria-hidden />
           <div>

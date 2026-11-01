@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Menu } from "lucide-react";
+import { LogoMark } from "@/components/brand/logo-mark";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { NavItem } from "@/lib/domain/access";
@@ -18,7 +19,10 @@ export function MobileNav({ items, institutionName }: { items: NavItem[]; instit
       </SheetTrigger>
       <SheetContent side="left" className="w-72 bg-sidebar p-0">
         <SheetHeader className="border-b px-4 py-3">
-          <SheetTitle className="text-left text-sm">ADR Reporter</SheetTitle>
+          <SheetTitle className="flex items-center gap-2 text-left text-sm">
+            <LogoMark className="size-6" size={24} />
+            ADR Reporter
+          </SheetTitle>
           <p className="text-left text-[13px] text-muted-foreground">{institutionName}</p>
         </SheetHeader>
         <nav aria-label="Main" className="px-3">

@@ -370,7 +370,7 @@ function ChatSession({ id }: { id: string }) {
                   key={message.id}
                   className={cn(
                     "max-w-xl rounded-xl p-4 text-sm leading-relaxed whitespace-pre-wrap",
-                    message.role === "USER" ? "ml-auto bg-info-soft" : "bg-secondary",
+                    message.role === "USER" ? "ml-auto bg-brand-soft" : "bg-secondary",
                   )}
                 >
                   <p className="mb-1 text-xs font-semibold text-muted-foreground">

@@ -3,7 +3,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, FileText } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import { LogoMark } from "@/components/brand/logo-mark";
 import { MobileNav } from "@/components/app-shell/mobile-nav";
 import { NavLinks } from "@/components/app-shell/nav-links";
 import { UserMenu } from "@/components/app-shell/user-menu";
@@ -44,7 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <aside className="hidden w-56 shrink-0 border-r bg-sidebar lg:block">
                 <div className="sticky top-0 flex h-dvh flex-col gap-8 px-4 py-7">
                   <Link href="/dashboard" className="flex items-center gap-3 px-2">
-                    <FileText className="size-8 text-primary" aria-hidden />
+                    <LogoMark className="size-9" size={36} />
                     <span>
                       <span className="block text-lg font-semibold tracking-tight">ADR Reporter</span>
                       <span

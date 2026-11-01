@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ClipboardCheck, FileText, Files } from "lucide-react";
+import { LogoMark } from "@/components/brand/logo-mark";
 import { FictionalDataBanner } from "@/components/fictional-data-banner";
 import { LoginForm } from "./login-form";
 
@@ -11,7 +12,7 @@ export default function LoginPage() {
       <main className="grid min-h-dvh flex-1 lg:grid-cols-2">
         <section className="flex flex-col justify-center bg-sidebar px-6 py-10 sm:px-12 lg:px-16">
           <div className="mb-8 flex items-center gap-3">
-            <FileText className="size-10 text-primary" aria-hidden />
+            <LogoMark className="size-11" size={44} />
             <p className="text-2xl font-semibold tracking-tight">ADR Reporter</p>
           </div>
           <h1 className="max-w-lg text-4xl leading-tight font-semibold tracking-tight sm:text-5xl">

@@ -33,7 +33,7 @@ export function UserMenu({ name, email, access }: UserMenuProps) {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="h-auto gap-2 px-2 py-1 text-left">
           <span
-            className="grid size-9 place-items-center rounded-full bg-info-soft text-sm font-semibold text-primary"
+            className="grid size-9 place-items-center rounded-full bg-brand-soft text-sm font-semibold text-primary"
             aria-hidden
           >
             {name

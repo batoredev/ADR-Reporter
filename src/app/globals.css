@@ -36,6 +36,8 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -65,7 +67,11 @@
   --card-foreground: #0f172a;
   --popover: #ffffff;
   --popover-foreground: #0f172a;
-  --primary: #2563eb;
+  /* Brand orange #e24704: the logo, focus rings and accents. Buttons and link text use the same orange a
+     touch deeper (#c63e04) so white or orange text meets WCAG AA contrast (4.5:1) on every light surface. */
+  --brand: #e24704;
+  --brand-soft: #fdefe7;
+  --primary: #c63e04;
   --primary-foreground: #ffffff;
   --secondary: #f8fafc;
   --secondary-foreground: #0f172a;
@@ -77,7 +83,7 @@
   --border: #e2e8f0;
   /* Form controls get a slightly stronger edge than dividers so they stay identifiable. */
   --input: #cbd5e1;
-  --ring: #2563eb;
+  --ring: #e24704;
   --success: #15803d;
   --success-soft: #f0fdf4;
   --warning: #b45309;
@@ -92,12 +98,12 @@
   --radius: 0.65rem;
   --sidebar: #f3f6fb;
   --sidebar-foreground: #0f172a;
-  --sidebar-primary: #2563eb;
+  --sidebar-primary: #c63e04;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e6eeff;
+  --sidebar-accent: #fdefe7;
   --sidebar-accent-foreground: #0f172a;
   --sidebar-border: #e2e8f0;
-  --sidebar-ring: #2563eb;
+  --sidebar-ring: #e24704;
 }
 
 @layer base {
