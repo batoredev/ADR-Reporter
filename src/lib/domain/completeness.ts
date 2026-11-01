@@ -89,6 +89,12 @@ export function assessCompleteness(
       });
     if (!m.ongoing && isDefinitelyBefore(m.stopDate.value, m.startDate.value))
       warnings.push({ path: `${row}.stopDate`, message: `${m.name} was stopped before it was started.` });
+    // Packs print the manufacturing and expiry dates together; an expiry before the reaction is often the wrong one.
+    if (isDefinitelyBefore(m.expiryDate.value, start))
+      warnings.push({
+        path: `${row}.expiryDate`,
+        message: `${m.name}: the expiry date is before the reaction started. Check it is not the manufacturing date.`,
+      });
   }
   if (v.seriousAnswer === "NO" && v.seriousnessCriteria.length > 0)
     warnings.push({ path: "seriousAnswer", message: "Seriousness is 'No' but seriousness criteria are ticked." });

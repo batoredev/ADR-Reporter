@@ -12,6 +12,10 @@ import {
   normalizeChatValue,
   quoteFound,
   displayValue,
+  equivalentValues,
+  roleStated,
+  setNote,
+  splitSentences,
   type ChatFact,
 } from "@/lib/domain/report-chat";
 import { form } from "../fixtures/form";
@@ -216,5 +220,58 @@ describe("understanding answers", () => {
     putFact(values, state, { ...dose, field: "name", value: "Cap. Amoxycillin 500mg" }, "Cap. Amoxycillin 500mg");
     expect(values.suspectedMedicines).toHaveLength(1);
     expect(values.suspectedMedicines[0]).toMatchObject({ name: "Cap. Amoxycillin 500mg", dose: "1 capsule" });
+  });
+});
+
+describe("checks added after the reporter's live tests (1 November 2026)", () => {
+  it("does not let the AI decide a role the reporter's words do not state", () => {
+    const message =
+      "She was taking Amoxycillin 500mg caps three times a day and Dolo 650 for fever. She also used Fluticasone nasal spray and Inj. Ceftriaxone 1 g. She had Ampicillin last year.";
+    expect(roleStated("CONCOMITANT", message, "Amoxycillin")).toBe(false);
+    expect(roleStated("CONCOMITANT", message, "Dolo 650")).toBe(false);
+    expect(roleStated("CONCOMITANT", message, "Ampicillin")).toBe(false);
+    expect(roleStated("CONCOMITANT", message, "Fluticasone nasal spray")).toBe(true);
+    expect(roleStated("CONCOMITANT", message, "Inj. Ceftriaxone")).toBe(true);
+    expect(roleStated("SUSPECTED", "Amoxicillin was stopped on 13 Oct after the rash.", "amoxicillin")).toBe(true);
+    expect(roleStated("SUSPECTED", "She was taking amoxicillin.", "amoxicillin")).toBe(false);
+    expect(roleStated("TREATMENT", "anything", "cetirizine")).toBe(true);
+  });
+
+  it("does not end a sentence at 'Inj.', 'Tab.' or initials", () => {
+    expect(splitSentences("She also used Inj. Ceftriaxone 1 g. Patient R.K. was 34. Tab. Dolo given.")).toEqual([
+      "She also used Inj. Ceftriaxone 1 g.",
+      "Patient R.K. was 34.",
+      "Tab. Dolo given.",
+    ]);
+  });
+
+  it("treats the same value in other words as agreeing", () => {
+    expect(equivalentValues("frequency", "TID", "three times a day")).toBe(true);
+    expect(equivalentValues("dose", "1 cap", "1 capsule")).toBe(true);
+    expect(equivalentValues("dose", "500mg", "500 mg")).toBe(true);
+    expect(equivalentValues("route", "orally", "Oral")).toBe(true);
+    expect(equivalentValues("dose", "1 cap", "500 mg")).toBe(false);
+    expect(equivalentValues("outcome", "RECOVERED", "recovered")).toBe(false);
+  });
+
+  it("checks yes/no readings and pack readings against their words", () => {
+    expect(needsEvidenceCheck("usedToTreatReaction", "true", "given cetirizine tablets for it")).toBe(false);
+    expect(needsEvidenceCheck("usedToTreatReaction", "true", "she was taking cetirizine")).toBe(true);
+    expect(needsEvidenceCheck("ongoing", "true", "also uses fluticasone nasal spray daily")).toBe(false);
+    expect(needsEvidenceCheck("route", "Nasal", "flutifer nassal spary")).toBe(false);
+    expect(needsEvidenceCheck("name", "Flutifer nasal spray", "flutifer nassal spary")).toBe(false);
+    expect(needsEvidenceCheck("batchLot", "G/25/536", "Mfg. Lic. No.: G/25/536")).toBe(true);
+    expect(needsEvidenceCheck("batchLot", "HND0361A", "Batch No.: HND0361A")).toBe(false);
+    expect(needsEvidenceCheck("expiryDate", "2027-10", "Mfg. Date: 10/2027")).toBe(true);
+    expect(needsEvidenceCheck("expiryDate", "2027-10", "Expiry Date: 10/2027")).toBe(false);
+  });
+
+  it("replaces a note in place so re-applying never reorders the saved state", () => {
+    const state = chatState({});
+    const note = (key: string, message: string) => ({ key, kind: "MERGED" as const, label: key, value: "", message });
+    setNote(state, note("a", "1"));
+    setNote(state, note("b", "1"));
+    setNote(state, note("a", "2"));
+    expect(state.notes.map((n) => `${n.key}${n.message}`)).toEqual(["a2", "b1"]);
   });
 });

@@ -15,7 +15,14 @@ import { patientInitialsMatch } from "@/lib/domain/extraction-quality";
 import { toFormValues, caseFieldsFromForm, caseFormSchema } from "@/lib/domain/case-form";
 import { assessCompleteness } from "@/lib/domain/completeness";
 import { OUTCOME_LABELS } from "@/lib/domain/labels";
-import { compareMedicines, inferRoute, sameMedicine } from "@/lib/domain/medicines";
+import {
+  bestMedicineName,
+  compareMedicines,
+  findMedicineMentions,
+  inferRoute,
+  sameMedicine,
+  strengthOf,
+} from "@/lib/domain/medicines";
 import { todayInAppZone } from "@/lib/format";
 import {
   ATTENTION_KINDS,
@@ -37,13 +44,18 @@ import {
   normalizeChatValue,
   quoteFound,
   displayValue,
+  equivalentValues,
+  roleStated,
   chatAnswerSchema,
+  BOOLEAN_FIELDS,
+  LONG_TEXT_FIELDS,
   CASE_FIELDS,
   MED_FIELDS,
   TEST_FIELDS,
   FIELD_OPTIONS,
   DATE_FIELDS,
   ROLE_LABELS,
+  MEDICINE_ROLES,
   type ChatFact,
   type ChatNote,
   type ChatQuestion,
@@ -244,6 +256,7 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
         quote: u.sourceText,
         approximate: u.approximate,
         uncertain: u.uncertain || needsEvidenceCheck(u.field, u.value, u.sourceText),
+        asWritten: u.uncertain,
         messageId: message.id,
       });
     });
@@ -283,12 +296,13 @@ const emptyFill = (): AutoFillResult => ({ added: [], changed: [], inferred: [],
 
 const sourceLabel = (f: ChatFact) =>
   f.documentName ? `${f.documentName}${f.sourcePage ? `, page ${f.sourcePage}` : ""}` : "your answer";
-const factLabel = (f: ChatFact) =>
-  f.entity === "case" ? fieldLabel(f) : `${f.entityName || "Test"}: ${fieldLabel(f)}`;
-const changeOf = (f: ChatFact, to: string, from?: string): AutoFillChange =>
-  f.entity === "case"
-    ? { label: fieldLabel(f), to, from }
-    : { label: fieldLabel(f), to, from, group: f.entityName || "Test" };
+type Location = ReturnType<typeof rowFor>;
+/** The name a medicine or test has in the report now, so replies and notes never show a merged spelling. */
+const rowName = (values: ChatContext["values"], location: Location, fallback: string) => {
+  if (!location) return fallback;
+  const row = values[location.list][location.index] as { name?: string; testName?: string } | undefined;
+  return (row?.name ?? row?.testName ?? "") || fallback || "Test";
+};
 /** Your answers first (latest first), then clear document readings, then unclear ones. */
 function rank(a: ChatFact, b: ChatFact, order: Map<string, number>) {
   const score = (f: ChatFact) => (f.messageId ? 0 : f.uncertain ? 2 : 1);
@@ -330,14 +344,36 @@ async function applyFacts(
   const beforeValues = JSON.stringify(values);
   const beforeState = JSON.stringify(state);
   const order = new Map(facts.map((f, i) => [f.id, i]));
-  type Pending = { note: ChatNote; location: ReturnType<typeof rowFor>; field: string };
+  type Pending = { note: ChatNote; location: Location; field: string; entity: ChatFact["entity"]; name: string };
   const pendingNotes: Pending[] = [];
-  const applied: { fact: ChatFact; location: ReturnType<typeof rowFor> }[] = [];
-  const note = (
-    fact: Pick<ChatFact, "entity" | "field">,
-    location: ReturnType<typeof rowFor>,
-    n: Omit<ChatNote, "key">,
-  ) => pendingNotes.push({ note: { ...n, key: "" }, location, field: fact.field });
+  const applied: { fact: ChatFact; location: Location }[] = [];
+  // Medicine and test changes are labelled with the row's final name once everything is applied.
+  const grouped: { change: AutoFillChange; location: Location; name: string }[] = [];
+  const note = (fact: ChatFact, location: Location, n: Omit<ChatNote, "key">) =>
+    pendingNotes.push({
+      note: { ...n, key: "" },
+      location,
+      field: fact.field,
+      entity: fact.entity,
+      name: fact.entityName,
+    });
+  const changeOf = (f: ChatFact, location: Location, to: string, from?: string): AutoFillChange => {
+    const change: AutoFillChange = { label: fieldLabel(f), to, from };
+    if (f.entity !== "case") grouped.push({ change, location, name: f.entityName });
+    return change;
+  };
+  /**
+   * The value already in the report. "No" for still-taken, ongoing or
+   * used-for-the-reaction is only the form's default unless a stop date backs
+   * it, so it never blocks a reading and is never shown as "No → Yes".
+   */
+  const currentOf = (f: ChatFact) => {
+    const value = readFactValue(values, state, f);
+    if (value !== "false" || !BOOLEAN_FIELDS.has(f.field)) return value;
+    if (f.field === "ongoing") return readFactValue(values, state, { ...f, field: "stopDate" }) ? value : "";
+    if (f.field === "reactionOngoing") return values.reactionStopDate.value ? value : "";
+    return "";
+  };
 
   // 1. Documents that may belong to another patient are held back.
   const norm = (v: string) => v.toUpperCase().replace(/[^A-Z]/g, "");
@@ -407,48 +443,60 @@ async function applyFacts(
   const ordered = [...groups.values()].sort((a, b) => Number(isName(b[0])) - Number(isName(a[0])));
   for (const group of ordered) {
     const ranked = [...group].sort((a, b) => rank(a, b, order));
-    const chosen = ranked[0];
-    const current = readFactValue(values, state, chosen);
-    const label = factLabel(chosen);
-    const others = ranked.filter((f) => f.value !== chosen.value && f.id !== chosen.id);
+    let chosen = ranked[0];
+    if (chosen.entity === "medicine" && chosen.field === "name") {
+      // One medicine, several spellings: keep the most informative clear name ("Amoxicillin 500 mg capsule"
+      // over "Amoxycillin"), unless the strengths differ, when the reporter's own answer decides.
+      const clear = ranked.filter((f) => !f.uncertain);
+      const pool = clear.length ? clear : ranked;
+      if (new Set(pool.map((f) => strengthOf(f.value)).filter(Boolean)).size <= 1)
+        chosen = pool.find((f) => f.value === bestMedicineName(pool.map((p) => p.value))) ?? chosen;
+    }
+    const current = currentOf(chosen);
+    const others = ranked.filter((f) => f.id !== chosen.id && !equivalentValues(f.field, f.value, chosen.value));
     const decide = (usedId: string | null) => {
       for (const f of group) state.decisions[f.id] = f.id === usedId ? "USED" : "SKIPPED";
     };
-    if (current && current !== chosen.value && !chosen.messageId && !isName(chosen)) {
+    if (current && !isName(chosen) && equivalentValues(chosen.field, current, chosen.value)) {
+      // Already in the report, perhaps in other words ("TID" and "three times a day").
+      decide(chosen.id);
+      continue;
+    }
+    if (current && !chosen.messageId && !isName(chosen)) {
       // A document never overwrites what is already in the report.
       note(chosen, rowFor(values, state, chosen), {
         kind: "CONFLICT",
-        label,
+        label: "",
         value: current,
         message: `${sourceLabel(chosen)} reads "${displayValue(chosen.field, chosen.value)}", but the report has "${displayValue(chosen.field, current)}". The report value was kept.`,
       });
       decide(null);
       continue;
     }
-    if (current === chosen.value && !isName(chosen)) {
-      decide(chosen.id);
-      continue;
-    }
     try {
       const location = putFact(values, state, chosen, chosen.value);
       const now = readFactValue(values, state, chosen);
       applied.push({ fact: chosen, location });
-      if (!current) result.added.push(changeOf(chosen, displayValue(chosen.field, now)));
+      if (!current) result.added.push(changeOf(chosen, location, displayValue(chosen.field, now)));
       else if (now !== current)
-        result.changed.push(changeOf(chosen, displayValue(chosen.field, now), displayValue(chosen.field, current)));
+        result.changed.push(
+          changeOf(chosen, location, displayValue(chosen.field, now), displayValue(chosen.field, current)),
+        );
       if (chosen.uncertain)
         note(chosen, location, {
           kind: "UNCLEAR",
-          label,
+          label: "",
           value: now,
-          message: chosen.messageId
+          message: chosen.asWritten
             ? `Taken as written from your answer ("${chosen.quote}"). Check it is right.`
-            : `The reading was unclear${chosen.quote ? `: "${chosen.quote}"` : ""} (${sourceLabel(chosen)}). Check it against the document.`,
+            : chosen.messageId
+              ? `Understood from your words "${chosen.quote}" as "${displayValue(chosen.field, now)}". Check it is right.`
+              : `The reading was unclear${chosen.quote ? `: "${chosen.quote}"` : ""} (${sourceLabel(chosen)}). Check it against the document.`,
         });
       if (current && now !== current && chosen.messageId && !isName(chosen))
         note(chosen, location, {
           kind: "CHANGED",
-          label,
+          label: "",
           value: now,
           message: `Changed from "${displayValue(chosen.field, current)}" by your answer.`,
         });
@@ -456,7 +504,7 @@ async function applyFacts(
       if (differing.length)
         note(chosen, location, {
           kind: "CONFLICT",
-          label,
+          label: "",
           value: now,
           message: `Sources differ: ${differing
             .map((o) => `${sourceLabel(o)} reads "${displayValue(o.field, o.value)}"`)
@@ -466,7 +514,7 @@ async function applyFacts(
     } catch (error) {
       note(chosen, rowFor(values, state, chosen), {
         kind: "INVALID",
-        label,
+        label: "",
         value: current,
         message: `"${chosen.value}" from ${sourceLabel(chosen)} could not be used: ${
           error instanceof Error ? error.message : "it does not fit this field"
@@ -481,8 +529,13 @@ async function applyFacts(
     values[list].forEach((row, index) => {
       if (!row.name || row.route.trim() || row.unknownFields.includes("route")) return;
       const key = entityKey("medicine", row.name);
+      // Only the medicine's own wording counts: "cetirizine for her swollen eyes" says nothing about its route.
       const quotes = facts
-        .filter((f) => f.entityKey === key || sameMedicine(f.entityName, row.name))
+        .filter(
+          (f) =>
+            ["name", "dose", "route", "frequency"].includes(f.field) &&
+            (f.entityKey === key || sameMedicine(f.entityName, row.name)),
+        )
         .map((f) => f.quote);
       const inferred = inferRoute([row.name, row.dose, row.frequency, ...quotes]);
       if (!inferred) return;
@@ -492,12 +545,14 @@ async function applyFacts(
         note: {
           key: "",
           kind: "INFERRED",
-          label: `${row.name}: Route`,
+          label: "",
           value: inferred.route,
           message: `Filled in from "${inferred.basis}" in the medicine details.`,
         },
         location: { list, index },
         field: "route",
+        entity: "medicine",
+        name: row.name,
       });
     });
   if (
@@ -517,19 +572,36 @@ async function applyFacts(
       },
       location: null,
       field: "reactionOngoing",
+      entity: "case",
+      name: "",
     });
   }
 
   // 5. Explain merged and look-alike medicine names.
   for (const [key, names] of data.namesByKey) {
     const distinct = [...new Set([...names].map((n) => n.toLowerCase()))];
-    if (distinct.length > 1)
+    if (distinct.length < 2) continue;
+    const row = rowFor(values, state, { entity: "medicine", entityKey: key, entityName: [...names][0] });
+    const label = rowName(values, row, [...names][0]);
+    setNote(state, {
+      key: `merged:${key}`,
+      kind: "MERGED",
+      label,
+      value: "",
+      message: `${[...names].map((n) => `"${n}"`).join(", ")} were recognised as the same medicine and entered once.`,
+    });
+    // One medicine written with different strengths needs a look at the dose.
+    // "Dolo 650" carries its strength as a bare number.
+    const strengthIn = (n: string) => strengthOf(n) ?? n.match(/\b(\d{2,4})\s*$/)?.[1] ?? null;
+    const strengths = [...new Set([...names].map(strengthIn).filter((v): v is string => Boolean(v)))];
+    const amounts = new Set(strengths.map((v) => parseFloat(v)));
+    if (amounts.size > 1)
       setNote(state, {
-        key: `merged:${key}`,
-        kind: "MERGED",
-        label: [...names][0],
+        key: `strength:${key}`,
+        kind: "CONFLICT",
+        label,
         value: "",
-        message: `${[...names].map((n) => `"${n}"`).join(", ")} were recognised as the same medicine and entered once.`,
+        message: `The same medicine was written with different strengths (${strengths.join(", ")}). Check the name and dose in the report.`,
       });
   }
   for (const [a, b] of data.similar)
@@ -568,7 +640,16 @@ async function applyFacts(
       : field === "ageValue" || field === "ageUnit"
         ? "age"
         : field;
-  for (const p of pendingNotes) setNote(state, { ...p.note, key: pathOf(p.location, p.field) });
+  for (const p of pendingNotes)
+    setNote(state, {
+      ...p.note,
+      key: pathOf(p.location, p.field),
+      label:
+        p.entity === "case"
+          ? p.note.label || fieldLabel({ entity: "case", field: p.field })
+          : `${rowName(values, p.location, p.name)}: ${fieldLabel({ entity: p.entity, field: p.field })}`,
+    });
+  for (const g of grouped) g.change.group = rowName(values, g.location, g.name);
   for (const { fact, location } of applied) {
     if (location)
       state.entities[fact.entityKey] = { rowId: rowIds[location.list][location.index], list: location.list };
@@ -783,6 +864,24 @@ function roleFromAnswer(content: string): MedicineRole | null {
   return null;
 }
 
+const ROLE_PHRASES: Record<MedicineRole, [string, string]> = {
+  SUSPECTED: ["is suspected of causing the reaction", "are suspected of causing the reaction"],
+  CONCOMITANT: ["is another medicine the patient was taking", "are other medicines the patient was taking"],
+  TREATMENT: ["was given to treat the reaction", "were given to treat the reaction"],
+  SKIP: ["is not relevant to this report", "are not relevant to this report"],
+};
+const joinNames = (names: string[]) =>
+  names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+/** "Noted: Amoxicillin is suspected of causing the reaction; Salbutamol and Fluticasone are other medicines…" */
+function roleSentence(noted: { name: string; role: MedicineRole }[]): string | null {
+  if (!noted.length) return null;
+  const parts = MEDICINE_ROLES.flatMap((role) => {
+    const names = noted.filter((n) => n.role === role).map((n) => n.name);
+    return names.length ? [`${joinNames(names)} ${ROLE_PHRASES[role][names.length > 1 ? 1 : 0]}`] : [];
+  });
+  return `Noted: ${parts.join("; ")}.`;
+}
+
 const CHAT_INSTRUCTIONS = (
   today: string,
 ) => `Extract explicit report facts from the latest English user message only. Return updates and roles, not advice or questions.
@@ -793,9 +892,11 @@ Every update needs an exact sourceText quote copied from the latest message. Do 
 If the message says the detail is not known ("not sure", "don't know", "n/a"), return no updates.
 Use case entity with an empty entityName. Allowed case fields: ${JSON.stringify(CASE_FIELDS)}.
 Medicine entityName must identify the exact medicine as written; allowed fields: ${JSON.stringify(MED_FIELDS)}.
+List every medicine the latest message mentions (current, past or for another condition; tablets, injections, sprays, drops, inhalers, creams), each with its own name update using the name as written with its form, e.g. "Fluticasone nasal spray". Never leave one out. Expect typing mistakes: "flutifer nassal spary" is the medicine "Flutifer nasal spray"; correct misspelt form words, never the medicine's own name.
+When the dosage form shows the route, give a route update too: nasal spray or drops in the nose: Nasal; eye drops: Ophthalmic; ear drops: Otic; inhaler, puffs or nebulisation: Inhalation; tablets, capsules or syrup: Oral; cream, ointment or gel: Topical. An injection without IV, IM or SC has no route.
 When introducing a new medicine or test, also include its name/testName update. Use the exact known medicine name for short answers to a question about that medicine.
 If a medicine was given to treat or relieve the reaction, set its usedToTreatReaction to "true" and add a role TREATMENT for it.
-Roles: add SUSPECTED only when the user says the medicine is suspected or caused the reaction, or names it in answer to "which medicine do you suspect"; CONCOMITANT when the user says the patient was also or already taking it; TREATMENT as above. Otherwise leave roles empty.
+Roles: add SUSPECTED only when the user says the medicine is suspected, caused the reaction, the reaction followed it, or it was stopped because of the reaction, or names it in answer to "which medicine do you suspect"; CONCOMITANT only when the user says the patient was ALSO, ALREADY or REGULARLY taking it, or that it is not suspected ("she was taking X" alone is not a role); TREATMENT as above. When unsure, leave the role out: the app asks the reporter.
 When the reaction stopped, resolved, disappeared or the patient recovered on a stated date, give reactionStopDate (approximate true when the date is "by" or "around"). If the reaction is still present, set reactionOngoing "true".
 When a medicine was stopped on a stated date, give its stopDate; when it was continued, set ongoing "true".
 Investigation entityName must identify its test; allowed fields: ${JSON.stringify(TEST_FIELDS)}.
@@ -910,7 +1011,8 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
             }),
           });
           updates = result.output.updates.map((u) => ({ ...u, uncertain: false }));
-          roles = result.output.roles;
+          // A role is used only when the reporter's words say it; otherwise the reporter is asked.
+          roles = result.output.roles.filter((r) => roleStated(r.role, body.content, r.entityName));
           provider = result.provider;
           model = result.model;
         } catch (error) {
@@ -918,6 +1020,30 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
             error instanceof Error ? error.message : "Your answer could not be understood right now. Try again.",
           );
         }
+        // A medicine written with its form or strength is never dropped, even if the AI reading missed it.
+        const named = [
+          ...updates.filter((u) => u.entity === "medicine").map((u) => u.entityName),
+          ...roles.map((r) => r.entityName),
+          ...[...data.values.suspectedMedicines, ...data.values.concomitantProducts].map((m) => m.name),
+        ].filter(Boolean);
+        for (const mention of findMedicineMentions(body.content))
+          if (!named.some((n) => sameMedicine(n, mention.name)))
+            updates.push({
+              entity: "medicine",
+              entityName: mention.name,
+              field: "name",
+              value: mention.name,
+              sourceText: mention.quote,
+              approximate: false,
+              uncertain: false,
+            });
+        // The reporter's own words answer a free-text question in full ("no allergies, known diabetic on metformin").
+        if (question && question.entity === "case" && LONG_TEXT_FIELDS.has(question.field))
+          for (const u of updates)
+            if (u.entity === "case" && u.field === question.field) {
+              u.value = body.content.trim();
+              u.sourceText = body.content;
+            }
         if (!updates.length && !roles.length) updates = plainAnswer(question, body.content);
       }
       if (question?.kind === "suspect") {
@@ -993,7 +1119,7 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
   }
 
   let autoDeferred = false;
-  let roleNote: string | null = null;
+  const noted: { name: string; role: MedicineRole }[] = [];
   try {
     await db.$transaction(async (tx) => {
       const { c, access } = await lockCase(user, caseId, tx);
@@ -1004,9 +1130,13 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
       const values = toFormValues(c);
       const before = JSON.stringify(values);
       const setRole = (key: string, name: string, next: MedicineRole) => {
+        const before = state.roles[key];
         state.roles[key] = next;
         moveMedicine(values, state, key, name, next);
-        roleNote = `Noted: ${name} is ${next === "SKIP" ? "not relevant to this report" : ROLE_LABELS[next].toLowerCase()}.`;
+        const location = rowFor(values, state, { entity: "medicine", entityKey: key, entityName: name });
+        const shown = rowName(values, location, name);
+        // Say it only when something changed, and once per medicine.
+        if (before !== next && !noted.some((n) => n.name === shown)) noted.push({ name: shown, role: next });
       };
       if (unknown && question) deferQuestion(values, state, question);
       if (role && question) setRole(question.entityKey, question.entityName, role);
@@ -1072,7 +1202,7 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
     ? question?.required
       ? "Noted as not known. This detail is required before the report can be submitted; you can add it later in the form."
       : "Noted as not known."
-    : (roleNote ?? undefined);
+    : (roleSentence(noted) ?? undefined);
   let reply = describeFill(fill, lead);
   if (!reply)
     reply = autoDeferred

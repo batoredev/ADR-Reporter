@@ -12,7 +12,15 @@ import {
 } from "./case-form";
 import * as labels from "./labels";
 import type { ReporterProfile } from "./completeness";
-import { bestMedicineName, medicineKey, normalizeRoute, sameMedicine } from "./medicines";
+import {
+  bestMedicineName,
+  frequencyCode,
+  inferRoute,
+  medicineKey,
+  normalizeRoute,
+  sameMedicine,
+  tidyMedicineName,
+} from "./medicines";
 import { formatForDisplay, isValidPartialDate } from "./partial-date";
 
 export const UPLOAD_LIMITS = {
@@ -94,6 +102,13 @@ export const DATE_FIELDS = new Set([
   "date",
 ]);
 export const BOOLEAN_FIELDS = new Set(["reactionOngoing", "ongoing", "usedToTreatReaction"]);
+/** Free-text fields where the reporter's own words are kept in full when they answer the question. */
+export const LONG_TEXT_FIELDS = new Set([
+  "reactionDescription",
+  "reactionManagement",
+  "medicalHistory",
+  "additionalInformation",
+]);
 export const ARRAY_FIELDS = new Set(["historyFlags", "seriousnessCriteria"]);
 export const FIELD_OPTIONS: Record<string, Record<string, string>> = {
   ageUnit: labels.AGE_UNIT_LABELS,
@@ -121,6 +136,8 @@ export interface ChatFact {
   sourcePage?: number;
   itemId?: string;
   messageId?: string;
+  /** An answer taken word for word because it could not be understood (not an AI reading). */
+  asWritten?: boolean;
 }
 export const NOTE_KINDS = [
   "UNCLEAR",
@@ -213,7 +230,10 @@ export function chatState(raw: unknown): ChatState {
 }
 /** Adds or replaces the note for a key and kind. */
 export function setNote(state: ChatState, note: ChatNote) {
-  state.notes = [...state.notes.filter((n) => !(n.key === note.key && n.kind === note.kind)), note].slice(-300);
+  // Replaced in place, so re-applying the same notes never reorders (and needlessly re-saves) the state.
+  const index = state.notes.findIndex((n) => n.key === note.key && n.kind === note.kind);
+  if (index >= 0) state.notes[index] = note;
+  else state.notes = [...state.notes, note].slice(-300);
 }
 /** A stored value as the reporter should read it: labels instead of codes, dates in words. */
 export function displayValue(field: string, raw: string): string {
@@ -249,6 +269,8 @@ export function needsEvidenceCheck(field: string, value: string, quote: string):
   const known = new Set(numbers(quote));
   const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   if (DATE_FIELDS.has(field)) {
+    // A pack's manufacturing date read as its expiry date.
+    if (field === "expiryDate" && /\b(?:mfg|mfd|manufactur\w*)\b/i.test(quote) && !/\bexp/i.test(quote)) return true;
     months.forEach((month, index) => {
       if (new RegExp(`\\b${month}[a-z]*\\b`, "i").test(quote)) known.add(String(index + 1));
     });
@@ -258,6 +280,13 @@ export function needsEvidenceCheck(field: string, value: string, quote: string):
     return numbers(value).some((n) => !known.has(n));
   }
   if (numbers(value).some((n) => !known.has(n))) return true;
+  // A licence number, price or barcode read as the batch number.
+  if (
+    field === "batchLot" &&
+    /\b(?:lic|licen[cs]e|mrp|price|rs)\b|₹/i.test(quote) &&
+    !/\b(?:batch|b\.?\s*no|lot)\b/i.test(quote)
+  )
+    return true;
   if (field === "weightKg" && /\blbs?\b|\bpounds?\b/i.test(quote.replace(/(\d)([a-z])/gi, "$1 $2"))) return true;
   const canonical = (text: string) =>
     text
@@ -280,10 +309,26 @@ export function needsEvidenceCheck(field: string, value: string, quote: string):
             }) as Record<string, string>
           )[t] ?? t,
       );
-    const sourceTokens = new Set(tokens(quote));
-    return tokens(value).some((token) => !sourceTokens.has(token));
+    // Misspelt form words count as written ("nassal spary" supports "nasal spray").
+    const sourceTokens = new Set(tokens(tidyMedicineName(quote)));
+    return tokens(tidyMedicineName(value)).some((token) => !sourceTokens.has(token));
   }
   if (canonical(quote).includes(canonical(value))) return false;
+  // "nassal spary" clearly says Nasal.
+  if (field === "route" && inferRoute([quote])?.route === normalizeRoute(value)) return false;
+  if (BOOLEAN_FIELDS.has(field)) {
+    // A yes/no reading is clear only when the words say it.
+    const cues: Record<string, RegExp> = {
+      "usedToTreatReaction:true":
+        /\b(?:treat(?:ed|ment)?|reliev\w*|to control|managed with|for (?:it|this|that|the (?:reaction|rash|itch\w*|symptoms?|swelling|allergy|hives|urticaria)))\b/i,
+      "ongoing:true": /\b(?:still|continu\w*|ongoing|daily|regularly|currently|every day|is on|remains on)\b/i,
+      "ongoing:false": /\b(?:stopped|discontinued|withdrawn|withheld|no longer|completed|finished)\b/i,
+      "reactionOngoing:true":
+        /\b(?:still|ongoing|persist\w*|continu\w*|not (?:yet )?(?:resolved|recovered|better|gone))\b/i,
+      "reactionOngoing:false": /\b(?:resolved|recovered|stopped|subsided|disappeared|gone|settled|cleared)\b/i,
+    };
+    return !cues[`${field}:${value}`]?.test(quote);
+  }
   if (field === "ageUnit") {
     const patterns: Record<string, RegExp> = {
       YEARS: /\b(?:y|yr|yrs|years?)\b/i,
@@ -395,7 +440,7 @@ export function putFact(values: CaseFormValues, state: ChatState, fact: ChatFact
           ...(list === "suspectedMedicines"
             ? emptySuspectedMedicine()
             : { ...emptyConcomitantProduct(), usedToTreatReaction: role === "TREATMENT" }),
-          name: fact.entityName,
+          name: tidyMedicineName(fact.entityName),
           id: `chat-new:${fact.entityKey}`,
         } as never);
         location = { list, index: values[list].length - 1 };
@@ -417,8 +462,8 @@ export function putFact(values: CaseFormValues, state: ChatState, fact: ChatFact
   const parsedValue = parsedFactValue(fact.field, value, fact.approximate);
   // Keep the most informative name for the same medicine ("Amoxicillin 500 mg capsule" over "amoxicillin").
   row[fact.field] =
-    fact.entity === "medicine" && fact.field === "name" && typeof row.name === "string" && row.name
-      ? bestMedicineName([row.name, String(parsedValue)])
+    fact.entity === "medicine" && fact.field === "name"
+      ? tidyMedicineName(bestMedicineName([typeof row.name === "string" ? row.name : "", String(parsedValue)]))
       : fact.field === "route" && typeof parsedValue === "string"
         ? normalizeRoute(parsedValue)
         : parsedValue;
@@ -596,6 +641,68 @@ export function quoteFound(message: string, quote: string) {
       .replace(/\s+/g, " ")
       .trim();
   return Boolean(quote.trim()) && norm(message).includes(norm(quote));
+}
+
+const canonicalText = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/\b(?:caps?|capsules)\b/g, "capsule")
+    .replace(/\b(?:tabs?|tablets)\b/g, "tablet")
+    .replace(/\s+/g, "")
+    .replace(/[.,;]+$/, "");
+/**
+ * True when two values say the same thing in different words: "TDS" and "three
+ * times a day", "500mg" and "500 mg", "orally" and "Oral". Used so that agreeing
+ * sources are not reported as differing. Codes, dates and yes/no must match exactly.
+ */
+export function equivalentValues(field: string, a: string, b: string): boolean {
+  if (a === b) return true;
+  const x = a.trim(),
+    y = b.trim();
+  if (!x || !y) return false;
+  if (FIELD_OPTIONS[field] || BOOLEAN_FIELDS.has(field) || DATE_FIELDS.has(field) || ARRAY_FIELDS.has(field))
+    return false;
+  if (field === "name") return sameMedicine(x, y);
+  if (field === "route") return normalizeRoute(x).toLowerCase() === normalizeRoute(y).toLowerCase();
+  if (field === "frequency" && frequencyCode(x) && frequencyCode(x) === frequencyCode(y)) return true;
+  return canonicalText(x) === canonicalText(y);
+}
+
+/** Sentences of a message; "Inj. Ceftriaxone", "Tab. X" and initials such as "R.K." do not end a sentence. */
+export function splitSentences(text: string): string[] {
+  return text
+    .split(
+      /(?<=[!?;]|(?<!\b(?:[Ii]nj|INJ|[Tt]abs?|TABS?|[Cc]aps?|CAPS?|[Ss]yp|[Ss]yr|[Ss]usp|[Oo]int|[Dd]r|[Mm]rs?|[Mm]s|[Nn]o|[Aa]pprox|vs|[A-Z]))\.)\s+|\n+/,
+    )
+    .filter((sentence) => sentence.trim());
+}
+
+const ROLE_CUES: Partial<Record<MedicineRole, RegExp>> = {
+  SUSPECTED:
+    /\b(?:suspect\w*|caus\w*|due to|because of|reaction to|reacted to|allerg\w* to|after (?:starting|taking|the \w+ dose|being given|receiving|giving)|following|culprit|blame\w*|side[- ]effects?|adverse|developed|stopped|withdrawn|discontinued|withheld)\b/i,
+  CONCOMITANT:
+    /\b(?:also|already|regular(?:ly)?|usual(?:ly)?|routine(?:ly)?|background|long[- ]term|chronic(?:ally)?|maintenance|other medicines?|another medicine|concomitant(?:ly)?|alongside|as well|in addition|besides|for (?:many |several |the (?:last|past) )?(?:years|months)|since (?:years|childhood|\d{4})|has been (?:on|taking)|not (?:the )?(?:suspect(?:ed)?|cause|culprit)|unrelated|not related)\b/i,
+};
+/**
+ * Whether the message actually says the role the AI gave a medicine. A reporter
+ * writing "she was taking X" has not said whether X is suspected, so that
+ * medicine is left for a role question instead of being placed by the AI.
+ * Only the sentences that name the medicine count.
+ */
+export function roleStated(role: MedicineRole, message: string, name: string): boolean {
+  const cues = ROLE_CUES[role];
+  if (!cues) return true;
+  const ingredients = new Set(medicineKey(name).split("+"));
+  const lower = name.toLowerCase().trim();
+  return splitSentences(message)
+    .filter(
+      (sentence) =>
+        (lower && sentence.toLowerCase().includes(lower)) ||
+        (sentence.match(/[A-Za-z][A-Za-z-]{2,}/g) ?? []).some(
+          (word) => ingredients.has(medicineKey(word)) || sameMedicine(word, name),
+        ),
+    )
+    .some((sentence) => cues.test(sentence));
 }
 
 const ask = (
