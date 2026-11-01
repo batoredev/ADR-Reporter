@@ -20,6 +20,7 @@ import type { CurrentUser } from "@/server/auth/current-user";
 import { db } from "@/server/db";
 import { caseAccess } from "./access";
 import { WorkflowError } from "./errors";
+import { confirmAutoFilledDetails } from "./report-summary";
 
 type Tx = Prisma.TransactionClient;
 const json = (v: unknown) => v as Prisma.InputJsonValue;
@@ -221,6 +222,8 @@ export async function submitCase(
         declarationAcceptedAt: now,
       },
     });
+    // The single confirmation: everything filled from documents and answers is confirmed by this submission.
+    const confirmed = await confirmAutoFilledDetails(tx, user, c.id);
     const frozen = await tx.adrCase.findUniqueOrThrow({ where: { id: c.id }, include: caseSnapshotInclude });
     await tx.caseVersion.create({
       data: {
@@ -243,7 +246,12 @@ export async function submitCase(
         actorId: user.id,
         caseId: c.id,
         action: resubmission ? "CASE_RESUBMITTED" : "CASE_SUBMITTED",
-        details: { versionNo, declaration: true, warnings: check.warnings.map((w) => w.message) },
+        details: {
+          versionNo,
+          declaration: true,
+          warnings: check.warnings.map((w) => w.message),
+          autoFilledConfirmed: confirmed,
+        },
       },
       tx,
     );

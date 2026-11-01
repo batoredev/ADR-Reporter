@@ -10,7 +10,7 @@ import { WorkspaceTabs, WorkspaceTabPanel } from "@/components/ui/workspace-tabs
 import { PageError, PageLoading } from "@/components/data/page-state";
 import { FileLink } from "@/components/data/protected-file";
 import { useRequireAccess } from "@/components/data/session";
-import { FactReview } from "@/components/report-chat/fact-review";
+import { ReportSoFar, ReviewNotes } from "@/components/report-chat/report-summary";
 import { EscalateButton } from "@/components/case/escalate-button";
 import { inputClass } from "@/components/report-form/fields";
 import { actions } from "@/lib/api/actions";
@@ -135,12 +135,12 @@ function ChatSession({ id }: { id: string }) {
             if (mounted.current) setPreparing(`${doc.name}: ${message}`);
           },
         );
-      } catch {
+      } catch (error) {
+        const reason = error instanceof Error && error.message ? ` (${error.message})` : "";
         if (mounted.current)
           setPreparationErrors((errors) => ({
             ...errors,
-            [doc.id]:
-              "This PDF could not be prepared. Retry, remove its password, or upload clear photos of its pages.",
+            [doc.id]: `This PDF could not be prepared${reason}. Retry, skip it, or upload clear photos of its pages instead.`,
           }));
       } finally {
         preparation.current = false;
@@ -202,24 +202,26 @@ function ChatSession({ id }: { id: string }) {
       setData(result.data);
       setText("");
       messageAttempt.current = null;
-      if (result.data.groups.length) setSideTab("details");
+      if (result.data.summary.attention.length) setSideTab("details");
     } else {
       setError(toolError(result.error));
       await refresh();
     }
     setBusy(null);
   }
-  async function apply(input: unknown) {
-    setBusy("apply");
+  async function act(
+    name: string,
+    call: () => Promise<{ ok: true; data: ReportChatView } | { ok: false; error: string }>,
+  ) {
+    setBusy(name);
     setError(null);
-    const result = await actions.chatApply(id, input);
+    const result = await call();
     if (result.ok) setData(result.data);
     else {
       setError(toolError(result.error));
       await refresh();
     }
     setBusy(null);
-    return result.ok;
   }
   if (!data)
     return error ? (
@@ -229,6 +231,19 @@ function ChatSession({ id }: { id: string }) {
       </div>
     ) : (
       <PageLoading />
+    );
+  if (!data.summary)
+    // The website updates before the API is redeployed; until then the older API has no report summary.
+    return (
+      <div className="mx-auto max-w-xl space-y-4 rounded-xl border bg-card p-6">
+        <h1 className="text-xl font-semibold">The report assistant is being updated</h1>
+        <p className="text-sm text-muted-foreground">
+          Try again in a few minutes. Your saved details are safe, and you can continue in the form meanwhile.
+        </p>
+        <Button asChild>
+          <Link href={pages.caseEdit(id)}>Open form</Link>
+        </Button>
+      </div>
     );
   const disabled = Boolean(busy) || data.activeMessage;
   const waiting = data.jobs.filter((j) => ["WAITING_PAGES", "QUEUED", "RUNNING"].includes(j.status)).length;
@@ -240,7 +255,7 @@ function ChatSession({ id }: { id: string }) {
           <p className="text-sm text-muted-foreground">{data.caseNumber} · Draft</p>
           <h1 className="mt-1 text-3xl font-semibold">Report assistant</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Add your documents, check the details, then answer what is missing.
+            Add documents or describe what happened. The report fills itself in; you confirm it once at the end.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -248,7 +263,7 @@ function ChatSession({ id }: { id: string }) {
             <Link href={pages.caseEdit(id)}>Open form</Link>
           </Button>
           <Button asChild>
-            <Link href={pages.caseSubmit(id)}>Review report</Link>
+            <Link href={pages.caseSubmit(id)}>Review and confirm report</Link>
           </Button>
         </div>
       </div>
@@ -271,7 +286,7 @@ function ChatSession({ id }: { id: string }) {
       <nav aria-label="Report assistant panels" className="flex gap-1 overflow-x-auto border-b lg:hidden">
         {[
           ["conversation", "Conversation"],
-          ["details", `Details (${data.groups.length})`],
+          ["details", `Report${data.summary.attention.length ? ` (${data.summary.attention.length} to check)` : ""}`],
           ["documents", `Files (${data.documents.length})`],
         ].map(([key, label]) => (
           <button
@@ -347,8 +362,8 @@ function ChatSession({ id }: { id: string }) {
               ref={historyPanel}
             >
               <p className="max-w-lg rounded-xl bg-secondary p-4 text-sm leading-relaxed">
-                Start by adding all documents for this fictional report. I will suggest the details they contain and ask
-                about what is still missing. You can also enter information here.
+                Add the documents for this fictional report, or tell me what happened. I will fill in the report as we
+                go and ask only for what is missing. You confirm everything once, before the report is submitted.
               </p>
               {data.messages.map((message) => (
                 <div
@@ -384,28 +399,14 @@ function ChatSession({ id }: { id: string }) {
             <div className="space-y-4 border-t p-5">
               {data.processing ? (
                 <p className="text-sm text-muted-foreground">
-                  I will check what is missing after all available pages have been read. You can add notes while you
-                  wait.
+                  I will ask about anything missing once the pages have been read. You can type details while you wait.
                 </p>
-              ) : data.groups.length ? (
-                <div className="space-y-2">
-                  <p className="text-sm">
-                    There are {data.groups.length} suggested details to check before the next question.
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setSideTab("details");
-                      setScreen("details");
-                    }}
-                  >
-                    Review suggested details
-                  </Button>
-                </div>
               ) : data.question ? (
                 <div className="space-y-3">
-                  <h3 className="font-medium">{data.question.text}</h3>
+                  <h3 className="font-medium">
+                    {data.question.text}
+                    {data.question.required ? <span className="sr-only"> (required)</span> : null}
+                  </h3>
                   {data.question.options ? (
                     <div className="flex flex-wrap gap-2">
                       {Object.entries(data.question.options).map(([value, label]) => (
@@ -422,23 +423,57 @@ function ChatSession({ id }: { id: string }) {
                       ))}
                     </div>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={disabled}
-                    onClick={() => void send("I don't know")}
-                  >
-                    I don&apos;t know this detail
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {data.question.kind !== "role" ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => void send("I don't know")}
+                      >
+                        I don&apos;t know this detail
+                      </Button>
+                    ) : null}
+                    {data.question.field === "reactionDescription" ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => void act("write", () => actions.chatWriteDescription(id))}
+                      >
+                        {busy === "write" ? <Loader2 className="animate-spin" aria-hidden /> : null}
+                        Write it for me from the details
+                      </Button>
+                    ) : null}
+                    {data.question.optional ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => void act("skip", () => actions.chatSkipOptional(id))}
+                      >
+                        Skip optional questions
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ) : (
-                <p className="flex items-start gap-2 text-sm text-success">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
-                  {data.completeness.ready
-                    ? "The required details are complete. Review the report before submitting."
-                    : "We have reached the available answers. The report still needs the mandatory details shown below before submission."}
-                </p>
+                <div className="space-y-3">
+                  <p className="flex items-start gap-2 text-sm text-success">
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+                    {data.completeness.ready
+                      ? "That's everything I need. Review the report once and confirm it to submit."
+                      : "I have no more questions. The report still needs the required details listed below."}
+                  </p>
+                  {data.completeness.ready ? (
+                    <Button asChild>
+                      <Link href={pages.caseSubmit(id)}>Review and confirm report</Link>
+                    </Button>
+                  ) : null}
+                </div>
               )}
               <form
                 className="space-y-3"
@@ -487,12 +522,17 @@ function ChatSession({ id }: { id: string }) {
               if (screen !== "conversation") setScreen(value);
             }}
             tabs={[
-              { value: "details", label: `Suggested details (${data.groups.length})` },
+              { value: "details", label: "Report so far" },
               { value: "documents", label: `Files (${data.documents.length})` },
             ]}
           >
-            <WorkspaceTabPanel value="details">
-              <FactReview data={data} busy={disabled || data.processing} onApply={apply} />
+            <WorkspaceTabPanel value="details" className="space-y-4">
+              <ReviewNotes
+                review={data.summary}
+                busy={disabled}
+                onBelongs={(documentId) => void act("belongs", () => actions.chatDocumentBelongs(id, documentId))}
+              />
+              <ReportSoFar review={data.summary} />
             </WorkspaceTabPanel>
             <WorkspaceTabPanel value="documents" className="space-y-4">
               {!data.documents.length ? (
@@ -512,8 +552,12 @@ function ChatSession({ id }: { id: string }) {
                         {doc.pageCount} page{doc.pageCount === 1 ? "" : "s"} ·{" "}
                         {jobs.filter((j) => j.status === "SUCCEEDED").length} read
                       </p>
-                      {doc.patientMatch === "DIFFERENT" ? (
-                        <p className="text-xs text-warning">Patient initials need checking.</p>
+                      {doc.held ? (
+                        <p className="text-xs text-warning">
+                          Different patient initials
+                          {doc.initials && doc.initials !== "CONFLICTING" ? ` (${doc.initials})` : ""}: its details were
+                          not added. See the report panel.
+                        </p>
                       ) : null}
                       {jobs.map((job) => (
                         <div key={job.id} className="space-y-1 border-t pt-2 text-xs">
@@ -564,6 +608,19 @@ function ChatSession({ id }: { id: string }) {
                             Retry preparation
                           </Button>
                         </div>
+                      ) : null}
+                      {jobs.some(
+                        (j) =>
+                          ["WAITING_PAGES", "QUEUED", "FAILED"].includes(j.status) && j.error !== "Skipped by you.",
+                      ) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={disabled}
+                          onClick={() => void act("skip-document", () => actions.chatSkipDocument(id, doc.id))}
+                        >
+                          Skip this file
+                        </Button>
                       ) : null}
                     </section>
                   );

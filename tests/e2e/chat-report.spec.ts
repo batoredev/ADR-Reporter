@@ -11,7 +11,7 @@ async function start(page: import("@playwright/test").Page) {
   await page.getByRole("button", { name: "Start a conversation" }).click();
   await expect(page.getByRole("heading", { name: "Report assistant", exact: true })).toBeVisible();
 }
-test("batch photos and multi-page PDFs become checked form details without duplicate medicines", async ({ page }) => {
+test("batch photos and multi-page PDFs fill the report directly, without duplicate medicines", async ({ page }) => {
   test.setTimeout(120_000);
   await start(page);
   const pdf = await PDFDocument.create();
@@ -25,28 +25,23 @@ test("batch photos and multi-page PDFs become checked form details without dupli
     },
     { name: "two-pages.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdf.save()) },
   ]);
-  await expect(page.getByRole("button", { name: "Review suggested details" })).toBeVisible({ timeout: 60_000 });
-  await page.getByRole("button", { name: "Review suggested details" }).click();
-  await expect(page.getByRole("button", { name: /Save checked details/ })).toBeVisible();
-  await expect(page.getByLabel("Role for Amoxicillin 500 mg capsule")).toBeEnabled({ timeout: 60_000 });
-  await page.getByLabel("Role for Amoxicillin 500 mg capsule").selectOption("SUSPECTED");
-  await page.getByLabel("Role for Paracetamol 500 mg tablet").selectOption("CONCOMITANT");
-  await page.getByLabel(/The reading is unclear. I checked this value directly/).check();
-  await page
-    .getByLabel("I checked the selected details against their sources and confirmed they belong to this report.")
-    .check();
-  await page.getByRole("button", { name: /Save checked details/ }).click();
-  await expect(page.getByText("What reaction or symptoms were noticed?", { exact: true })).toBeVisible();
+  // Three readings of the same prescription: each medicine is asked about once, then entered once.
+  await expect(page.getByText("How is Amoxicillin 500 mg capsule related to this report?")).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText(/Added to the report: .*Patient initials: R\.K\./).first()).toBeVisible();
+  await page.getByRole("button", { name: "Suspected of causing the reaction" }).click();
+  await expect(page.getByText("How is Paracetamol 500 mg tablet related to this report?")).toBeVisible();
+  await page.getByRole("button", { name: "Another medicine the patient was taking" }).click();
+  await expect(page.getByRole("heading", { name: /What reaction or symptoms did the patient have/ })).toBeVisible();
   await page.getByLabel("Your answer or additional details").fill("Rash");
   await page.getByRole("button", { name: "Send answer" }).click();
-  await page
-    .getByLabel("I checked the selected details against their sources and confirmed they belong to this report.")
-    .check();
-  await page.getByRole("button", { name: /Save checked details/ }).click();
-  await expect(page.getByText(/When did the reaction begin/)).toBeVisible();
+  await expect(page.getByText(/When did the reaction start/)).toBeVisible();
   await page.reload();
-  await expect(page.getByText(/When did the reaction begin/)).toBeVisible();
+  await expect(page.getByText(/When did the reaction start/)).toBeVisible();
   await expect(page.locator("main")).not.toContainText(/Ollama|Gemini|Claude|paid fallback|AI model/);
+  // The unclear "SOS" reading went in, marked for a look at the final confirmation.
+  await expect(page.getByText(/Please take a quick look/)).toBeVisible();
   await page.screenshot({ path: "test-results/chat-desktop.png", fullPage: true });
   await page.getByRole("link", { name: "Open form", exact: true }).click();
   await expect(page.getByLabel("1. Patient initials")).toHaveValue("R.K.");
@@ -54,22 +49,20 @@ test("batch photos and multi-page PDFs become checked form details without dupli
   await expect(page.locator('input[name="suspectedMedicines.0.name"]')).toHaveValue("Amoxicillin 500 mg capsule");
   await expect(page.locator('input[name="suspectedMedicines.1.name"]')).toHaveCount(0);
   await expect(page.locator('input[name="concomitantProducts.0.name"]')).toHaveValue("Paracetamol 500 mg tablet");
+  await expect(page.locator('input[name="concomitantProducts.1.name"]')).toHaveCount(0);
 });
 
-test("a phone shows one panel at a time and retains an unanswered suggestion after reload", async ({ page }) => {
+test("a phone shows one panel at a time and keeps saved answers after reload", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await start(page);
   await page.getByLabel("Your answer or additional details").fill("C.B.");
   await page.getByRole("button", { name: "Send answer" }).click();
-  await expect(page.getByRole("button", { name: "Review suggested details" })).toBeVisible();
+  await expect(page.getByText(/Added to the report: Patient initials: C\.B\./)).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Review suggested details" }).click();
-  await expect(page.getByLabel("Patient initials value")).toHaveValue("C.B.");
+  await expect(page.getByText(/How old was the patient/)).toBeVisible();
+  await page.getByRole("button", { name: /^Report( \(|$)/ }).click();
   await expect(page.getByRole("region", { name: "Report conversation" })).toBeHidden();
-  await page
-    .getByLabel("I checked the selected details against their sources and confirmed they belong to this report.")
-    .check();
-  await page.getByRole("button", { name: /Save checked details/ }).click();
+  await expect(page.getByLabel("Report details so far")).toContainText("C.B.");
   await page.getByRole("button", { name: "Conversation", exact: true }).click();
   await expect(page.getByText(/How old was the patient/)).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);

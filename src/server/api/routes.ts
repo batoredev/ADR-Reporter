@@ -28,7 +28,14 @@ import {
   discardNarrative,
 } from "@/server/workflow/ai-assist";
 import { guidedFollowups, saveGuidedStep } from "@/server/workflow/guided";
-import { getReportChat, sendReportChatMessage, applyReportChatFacts } from "@/server/workflow/report-chat";
+import {
+  getReportChat,
+  sendReportChatMessage,
+  skipOptionalQuestions,
+  confirmDocumentBelongs,
+  skipChatDocument,
+  writeDescription,
+} from "@/server/workflow/report-chat";
 import { UPLOAD_LIMITS } from "@/lib/domain/report-chat";
 import {
   limitedFormData,
@@ -169,9 +176,27 @@ export const routes: Route[] = [
   },
   {
     method: "POST",
-    path: "/cases/:id/chat/apply",
+    path: "/cases/:id/chat/write-description",
     auth: true,
-    handler: async ({ user, params, request }) => applyReportChatFacts(user, params.id, await readJson(request)),
+    handler: ({ user, params }) => writeDescription(user, params.id),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/skip-optional",
+    auth: true,
+    handler: ({ user, params }) => skipOptionalQuestions(user, params.id),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/documents/:documentId/belongs",
+    auth: true,
+    handler: ({ user, params }) => confirmDocumentBelongs(user, params.id, params.documentId),
+  },
+  {
+    method: "POST",
+    path: "/cases/:id/chat/documents/:documentId/skip",
+    auth: true,
+    handler: ({ user, params }) => skipChatDocument(user, params.id, params.documentId),
   },
   {
     method: "POST",

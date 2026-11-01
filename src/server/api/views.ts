@@ -1,4 +1,6 @@
 import "server-only";
+import { buildReportSummary } from "@/server/workflow/report-summary";
+import { chatState } from "@/lib/domain/report-chat";
 import { CaseStatus } from "@/generated/prisma/enums";
 import { canReport, describeAccess } from "@/lib/domain/access";
 import { toFormValues } from "@/lib/domain/case-form";
@@ -126,6 +128,12 @@ export async function submitView(user: CurrentUser, caseId: string) {
     lockVersion: d.c.lockVersion,
     resubmission: d.c.status === "RETURNED",
     check: assessCompleteness(toFormValues(d.c), d.reporter),
+    // Everything filled from documents and answers, with notes, for the single confirmation before submitting.
+    review: await buildReportSummary(
+      caseId,
+      toFormValues(d.c),
+      chatState((await db.reportChat.findUnique({ where: { caseId }, select: { state: true } }))?.state),
+    ),
     aiEvents: d.timeline.filter((e) => e.action.startsWith("AI_")),
     preview: {
       ...d.live,

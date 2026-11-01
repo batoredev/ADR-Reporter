@@ -44,7 +44,12 @@ export const actions = {
   startChat: (caseId: string) => post(`/cases/${id(caseId)}/chat/start`),
   chat: (caseId: string) => result(apiGet<ReportChatView>(`/cases/${id(caseId)}/chat`)),
   chatMessage: (caseId: string, input: unknown) => post<ReportChatView>(`/cases/${id(caseId)}/chat/messages`, input),
-  chatApply: (caseId: string, input: unknown) => post<ReportChatView>(`/cases/${id(caseId)}/chat/apply`, input),
+  chatSkipOptional: (caseId: string) => post<ReportChatView>(`/cases/${id(caseId)}/chat/skip-optional`),
+  chatWriteDescription: (caseId: string) => post<ReportChatView>(`/cases/${id(caseId)}/chat/write-description`),
+  chatDocumentBelongs: (caseId: string, documentId: string) =>
+    post<ReportChatView>(`/cases/${id(caseId)}/chat/documents/${id(documentId)}/belongs`),
+  chatSkipDocument: (caseId: string, documentId: string) =>
+    post<ReportChatView>(`/cases/${id(caseId)}/chat/documents/${id(documentId)}/skip`),
   chatUpload: (caseId: string, form: FormData) =>
     result(apiSend<{ batchId: string }>("POST", `/cases/${id(caseId)}/chat/uploads`, form)),
   chatPage: (caseId: string, documentId: string, pageNumber: number, form: FormData) =>

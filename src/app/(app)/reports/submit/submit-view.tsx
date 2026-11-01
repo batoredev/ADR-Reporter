@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { AiReviewSummary } from "@/components/ai/ai-review-summary";
+import { ReviewNotes } from "@/components/report-chat/report-summary";
 import { CaseSummary } from "@/components/case/case-summary";
 import { StatusBadge } from "@/components/case-badges";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ export function SubmitReportView() {
                   ]}
                 >
                   <WorkspaceTabPanel value="summary" className="space-y-4">
+                    {d.review ? <ReviewNotes review={d.review} /> : null}
                     <AiReviewSummary events={d.aiEvents} />
                     <CaseSummary snapshot={preview} />
                   </WorkspaceTabPanel>
@@ -107,8 +109,20 @@ export function SubmitReportView() {
                     </div>
                   ) : null}
                 </div>
+                {d.review?.attention.length ? (
+                  <p className="flex gap-2 rounded-lg border border-warning/30 bg-warning-soft p-3 text-[13px] text-warning">
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                    {d.review.attention.length} automatically filled detail
+                    {d.review.attention.length === 1 ? " is" : "s are"} marked for a quick look in the report summary.
+                  </p>
+                ) : null}
                 {check.ready ? (
-                  <SubmitForm caseId={id} lockVersion={d.lockVersion} resubmission={resubmission} />
+                  <SubmitForm
+                    caseId={id}
+                    lockVersion={d.lockVersion}
+                    resubmission={resubmission}
+                    autoFilled={d.review?.autoFilled ?? 0}
+                  />
                 ) : null}
                 <Button asChild variant="ghost" className="w-full">
                   <Link href={pages.caseEdit(id)}>Keep editing</Link>

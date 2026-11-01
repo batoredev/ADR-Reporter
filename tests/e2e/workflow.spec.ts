@@ -77,7 +77,7 @@ test("a report goes from AI-assisted entry through review, approval and external
 
     await reporter.getByRole("button", { name: "Review and submit" }).click();
     await reporter.waitForURL(/\/reports\/submit\?id=/);
-    await reporter.getByRole("checkbox", { name: /I confirm this report/ }).check();
+    await reporter.getByRole("checkbox", { name: /confirm it is accurate/ }).check();
     await reporter.getByRole("button", { name: "Submit for institutional review" }).click();
     await reporter.waitForURL(/submitted=1$/);
     caseNumber = (await reporter.getByRole("heading", { level: 1 }).innerText()).trim();
@@ -119,7 +119,7 @@ test("a report goes from AI-assisted entry through review, approval and external
     await expect(reporter.getByText(/Saved at/)).toBeVisible({ timeout: 10_000 });
     await reporter.goto(`/reports/submit?id=${caseId}`);
     await reporter.getByLabel(/Note to the reviewer/).fill("Batch number added from the strip.");
-    await reporter.getByRole("checkbox", { name: /I confirm this report/ }).check();
+    await reporter.getByRole("checkbox", { name: /confirm it is accurate/ }).check();
     await reporter.getByRole("button", { name: "Resubmit for review" }).click();
     await reporter.waitForURL(/submitted=2$/);
   });

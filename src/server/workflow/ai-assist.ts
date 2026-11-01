@@ -112,7 +112,7 @@ async function documentFacts(caseId: string): Promise<string> {
   const chat = await db.reportChat.findUnique({ where: { caseId }, select: { state: true } });
   const skipped = new Set(
     Object.entries(chatState(chat?.state).decisions)
-      .filter(([, value]) => value === "SKIPPED")
+      .filter(([, value]) => value === "SKIPPED" || value === "HELD")
       .map(([id]) => id),
   );
   const pagedDocuments = new Set(runs.filter((run) => run.sourcePage !== null).map((run) => run.documentId));

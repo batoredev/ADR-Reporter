@@ -57,6 +57,26 @@ If `.env` contains the correct hosted `DATABASE_URL`, `npm run db:deploy` applie
 
 Do not use `db:reset`. Do not reapply the original schema or demo seed to the existing hosted project.
 
+## How the assistant fills the report (since 1 November 2026)
+
+There is no per-detail approval any more. Readings and answers go straight into the report, and the reporter confirms
+the whole report once, on **Review and submit** (the declaration covers everything filled automatically). Rules:
+
+- The reporter's own answers override document readings and earlier answers; a document never overwrites a value
+  already in the report (the difference is noted for the final look).
+- Documents whose patient initials differ from the report are held back until the reporter says they belong.
+- The same medicine from several sources is entered once, matched by ingredient ("Cap. Amoxycillin 500mg" =
+  "amoxicillin"; common brand names such as Dolo or Augmentin are known). Look-alike names (ampicillin/amoxicillin,
+  prednisone/prednisolone) are never merged; they are flagged.
+- A new medicine is placed only after one question: suspected, another medicine, given to treat the reaction, or not
+  relevant. Medicines described as given for the reaction are placed as treatment without asking.
+- The route is filled in from an unambiguous dosage form (nasal spray → Nasal, eye drops → Ophthalmic, tablet → Oral);
+  an injection without IV/IM/SC is asked.
+- "Not sure", "n/a", "don't know" and similar answers are recorded as not known; they are never saved as values, and an
+  optional question is skipped after two answers that cannot be used. Optional questions can be skipped together.
+- Unclear readings, differing sources, held documents and similar names are listed under **Please take a quick look**
+  in the assistant and on the submit page. Submitting marks every automatically filled value as confirmed.
+
 ## Working flow
 
 1. Start a conversation or continue an existing draft with the report assistant.

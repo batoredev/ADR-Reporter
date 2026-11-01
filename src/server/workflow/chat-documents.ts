@@ -10,6 +10,7 @@ import { activeUserById, type CurrentUser } from "@/server/auth/current-user";
 import { writeAudit } from "@/server/audit";
 import { lockCase, loadCase } from "./cases";
 import { runExtraction } from "./extraction";
+import { autoApply, fillAfterReading } from "./report-chat";
 import { WorkflowError } from "./errors";
 
 const keySchema = z.string().uuid();
@@ -185,6 +186,7 @@ export async function startReportChatDocuments(user: CurrentUser, caseId: string
       });
     }
   }
+  await autoApply(user, caseId).catch((error) => console.error("Filling the report failed", error));
   return { ready: true };
 }
 
@@ -285,7 +287,7 @@ export async function processChatJob(caseId?: string, user?: CurrentUser) {
         leaseToken: token,
         leaseUntil: new Date(now.getTime() + 180_000),
       },
-      include: { document: { select: { mimeType: true } } },
+      include: { document: { select: { mimeType: true, originalName: true, pageCount: true } } },
     });
   });
   if (!job) return { processed: false };
@@ -306,10 +308,20 @@ export async function processChatJob(caseId?: string, user?: CurrentUser) {
         ? { page: { bytes: new Uint8Array(await readStoredFile(page.storageKey)), pageNumber: job.pageNumber } }
         : {}),
     });
-    await db.documentExtractionJob.updateMany({
+    const done = await db.documentExtractionJob.updateMany({
       where: { id: job.id, leaseToken: token, status: "RUNNING" },
       data: { status: "SUCCEEDED", runId: run.runId, errorMessage: null, leaseToken: null, leaseUntil: null },
     });
+    // The details go straight into the report; the reporter confirms the whole report once before submitting.
+    if (done.count)
+      await fillAfterReading(
+        actor,
+        job.caseId,
+        job.id,
+        job.document.originalName,
+        job.pageNumber,
+        job.document.pageCount,
+      ).catch((error) => console.error("Filling the report after reading failed", error));
   } catch (error) {
     const message = toolError(
       error instanceof WorkflowError

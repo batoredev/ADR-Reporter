@@ -11,10 +11,13 @@ export function SubmitForm({
   caseId,
   lockVersion,
   resubmission,
+  autoFilled = 0,
 }: {
   caseId: string;
   lockVersion: number;
   resubmission: boolean;
+  /** Values filled from documents and answers; this one confirmation covers them all. */
+  autoFilled?: number;
 }) {
   const router = useRouter();
   const [confirmed, setConfirmed] = useState(false);
@@ -60,8 +63,9 @@ export function SubmitForm({
           onChange={(e) => setConfirmed(e.target.checked)}
         />
         <span>
-          I confirm this report is accurate to the best of my knowledge and contains no invented information. Submitting
-          it is not an admission that the medicine caused the reaction.
+          I have reviewed this report{autoFilled ? ", including the details filled in from documents and answers," : ""}{" "}
+          and confirm it is accurate to the best of my knowledge and contains no invented information. Submitting it is
+          not an admission that the medicine caused the reaction.
         </span>
       </label>
       <p className="text-xs text-muted-foreground">

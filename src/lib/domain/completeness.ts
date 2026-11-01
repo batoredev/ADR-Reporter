@@ -2,6 +2,7 @@
 // contradictory information; they never change what the reporter entered.
 import { todayInAppZone } from "@/lib/format";
 import type { CaseFormValues } from "./case-form";
+import { compareMedicines } from "./medicines";
 import { isDefinitelyBefore } from "./partial-date";
 
 export interface Finding {
@@ -135,22 +136,29 @@ export function assessCompleteness(
       future(i.date.value, `investigations.${i.id ?? "new"}.date`, `${i.testName || "A test"}: the date`);
   });
 
-  // The same medicine entered twice, or as both suspected and concomitant.
-  const key = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
-  const seen = new Map<string, string>();
-  for (const m of named) {
-    const k = key(m.name);
-    if (seen.has(k))
-      warnings.push({ path: `suspectedMedicines.${m.id ?? "new"}.name`, message: `${m.name} is listed twice.` });
-    seen.set(k, "suspected");
-  }
+  // The same medicine entered twice (by ingredient, so "Cap. Amoxycillin 500mg" and "amoxicillin" match),
+  // or as both suspected and concomitant. Look-alike names are pointed out, never merged.
+  const earlier: { name: string; list: "suspected" | "concomitant" }[] = [];
+  const check = (name: string, list: "suspected" | "concomitant", path: string) => {
+    for (const other of earlier) {
+      const match = compareMedicines(other.name, name);
+      if (match === "SAME" || match === "TYPO")
+        warnings.push({
+          path,
+          message:
+            other.list === list
+              ? `${name} is listed twice${other.name !== name ? ` (also as "${other.name}")` : ""}.`
+              : `${name} is listed as both a suspected medicine and a concomitant product.`,
+        });
+      else if (match === "SIMILAR")
+        warnings.push({ path, message: `${name} and ${other.name} have similar names. Check both are correct.` });
+    }
+    earlier.push({ name, list });
+  };
+  for (const m of named) check(m.name, "suspected", `suspectedMedicines.${m.id ?? "new"}.name`);
   for (const p of v.concomitantProducts.filter((p) => !blank(p.name))) {
     const row = `concomitantProducts.${p.id ?? "new"}`;
-    if (seen.get(key(p.name)) === "suspected")
-      warnings.push({
-        path: `${row}.name`,
-        message: `${p.name} is listed as both a suspected medicine and a concomitant product.`,
-      });
+    check(p.name, "concomitant", `${row}.name`);
     if (p.usedToTreatReaction && isDefinitelyBefore(p.startDate.value, start))
       warnings.push({
         path: `${row}.startDate`,
