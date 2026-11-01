@@ -5,8 +5,10 @@ export async function preparePdfPages(
   save: (pageNumber: number, file: File) => Promise<void>,
   progress: (message: string) => void,
 ) {
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = `/pdfjs/pdf.worker-${pdfjs.version}.js`;
+  // The legacy build: the modern one needs Map.prototype.getOrInsertComputed, which many
+  // current browsers (Safari, Firefox, Chrome before 2026 releases) do not have yet.
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = `/pdfjs/pdf.worker-legacy-${pdfjs.version}.js`;
   const task = pdfjs.getDocument({
     data: new Uint8Array(await blob.arrayBuffer()),
     cMapUrl: "/pdfjs/cmaps/",
