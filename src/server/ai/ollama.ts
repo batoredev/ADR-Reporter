@@ -76,6 +76,8 @@ export function createOllamaProvider(config: {
         if (status === 401 || status === 403) throw new AiError("Ollama rejected the API key (OLLAMA_API_KEY).");
         if (status === 429) throw new AiError("Ollama's usage limit is reached for now.");
         if (status === 404) throw new AiError(`The Ollama model "${config.model}" was not found.`);
+        if (status === 402)
+          throw new AiError("Ollama needs payment: the account's usage allowance for this model is used up (402).");
         throw new AiError(`Ollama returned an error (${status}).`);
       }
       if (reply.done_reason === "length") throw new AiError("Ollama's reply was cut off.");

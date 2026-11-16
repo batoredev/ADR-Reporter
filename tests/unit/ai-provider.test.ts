@@ -123,6 +123,27 @@ describe("provider request compatibility", () => {
     expect(body.contents[0].parts[0].inlineData.data).toBe("AQ==");
     expect(init.headers).toMatchObject({ "x-goog-api-key": "test-key" });
   });
+  it("retries once without the reply schema when Gemini rejects it, and keeps Gemini's reason", async () => {
+    const rejected = () =>
+      new Response(JSON.stringify({ error: { code: 400, message: "Invalid JSON payload: unknown keyword" } }), {
+        status: 400,
+      });
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(rejected())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"answer":"ok"}' }] }, finishReason: "STOP" }] }),
+        ),
+      );
+    const p = createGeminiProvider({ apiKey: "test-key", model: "gemini-3.5-flash-lite", fetchImpl });
+    expect((await p.generate(request)).output.answer).toBe("ok");
+    const second = JSON.parse(fetchImpl.mock.calls[1][1]!.body as string);
+    expect(second.generationConfig.responseJsonSchema).toBeUndefined();
+    expect(second.systemInstruction.parts[0].text).toContain('"answer"');
+    fetchImpl.mockReset().mockImplementation(async () => rejected());
+    await expect(p.generate(request)).rejects.toThrow(/Gemini said: Invalid JSON payload/);
+  });
   it.each(["https://ollama.com", "http://localhost:11434"])(
     "handles structured JSON correctly at %s",
     async (baseUrl) => {

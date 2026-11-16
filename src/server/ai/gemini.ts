@@ -32,33 +32,49 @@ export function createGeminiProvider(config: { apiKey: string; model: string; fe
       const parts: Record<string, unknown>[] = [];
       if (document) parts.push({ inlineData: { mimeType: document.mimeType, data: toBase64(document.bytes) } });
       parts.push({ text: prompt });
-      let response: Response;
-      try {
-        response = await doFetch(`${ENDPOINT}/${encodeURIComponent(config.model)}:generateContent`, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": config.apiKey },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: "user", parts }],
-            generationConfig: {
-              responseMimeType: "application/json",
-              responseJsonSchema: replyJsonSchema(schema),
-              maxOutputTokens: maxOutputTokens ?? 8192,
-            },
-          }),
-          signal,
-        });
-      } catch {
-        throw new AiError(signal?.aborted ? "Gemini took too long to answer." : "Could not reach Gemini.");
-      }
-      const reply = (await response.json().catch(() => ({}))) as GeminiReply;
+      const send = async (strict: boolean) => {
+        let response: Response;
+        try {
+          response = await doFetch(`${ENDPOINT}/${encodeURIComponent(config.model)}:generateContent`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-goog-api-key": config.apiKey },
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [
+                  {
+                    text: strict
+                      ? system
+                      : `${system}\nReply with JSON only, matching this JSON Schema exactly:\n${JSON.stringify(replyJsonSchema(schema))}`,
+                  },
+                ],
+              },
+              contents: [{ role: "user", parts }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                ...(strict ? { responseJsonSchema: replyJsonSchema(schema) } : {}),
+                maxOutputTokens: maxOutputTokens ?? 8192,
+              },
+            }),
+            signal,
+          });
+        } catch {
+          throw new AiError(signal?.aborted ? "Gemini took too long to answer." : "Could not reach Gemini.");
+        }
+        return { response, reply: (await response.json().catch(() => ({}))) as GeminiReply };
+      };
+      let { response, reply } = await send(true);
+      // Some models reject a reply schema they cannot enforce (400). The reply is still checked
+      // against the schema below, so ask once more with the schema written into the instructions.
+      if (response.status === 400 && !signal?.aborted) ({ response, reply } = await send(false));
       if (!response.ok) {
         const status = response.status;
-        if (status === 429) throw new AiError("Gemini's quota is used up for now.");
-        if (status === 503 || status === 500) throw new AiError("Gemini is busy at the moment.");
-        if (status === 401 || status === 403) throw new AiError("Gemini rejected the API key (GEMINI_API_KEY).");
-        if (status === 404) throw new AiError(`The Gemini model "${config.model}" is not available.`);
-        throw new AiError(`Gemini returned an error (${status}).`);
+        // Gemini's own words are kept for diagnosis (stored with the failed run; never shown to reporters).
+        const why = reply.error?.message ? ` Gemini said: ${reply.error.message.slice(0, 300)}` : "";
+        if (status === 429) throw new AiError(`Gemini's quota is used up for now.${why}`);
+        if (status === 503 || status === 500) throw new AiError(`Gemini is busy at the moment.${why}`);
+        if (status === 401 || status === 403) throw new AiError(`Gemini rejected the API key (GEMINI_API_KEY).${why}`);
+        if (status === 404) throw new AiError(`The Gemini model "${config.model}" is not available.${why}`);
+        throw new AiError(`Gemini returned an error (${status}).${why}`);
       }
       if (reply.promptFeedback?.blockReason) throw new AiError("Gemini declined to read this input.");
       const candidate = reply.candidates?.[0];
