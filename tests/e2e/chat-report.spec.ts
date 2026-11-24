@@ -25,20 +25,21 @@ test("batch photos and multi-page PDFs fill the report directly, without duplica
     },
     { name: "two-pages.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdf.save()) },
   ]);
-  // Three readings of the same prescription: each medicine is asked about once, then entered once.
-  await expect(page.getByText("How is Amoxicillin 500 mg capsule related to this report?")).toBeVisible({
+  // Three readings of the same prescription: the patient goes straight in, then two short questions.
+  await expect(
+    page.getByRole("heading", { name: /What reaction did the patient have, and when did it start/ }),
+  ).toBeVisible({
     timeout: 60_000,
   });
   await expect(page.getByText(/Added to the report: .*Patient initials: R\.K\./).first()).toBeVisible();
-  await page.getByRole("button", { name: "Suspected of causing the reaction" }).click();
-  await expect(page.getByText("How is Paracetamol 500 mg tablet related to this report?")).toBeVisible();
-  await page.getByRole("button", { name: "Another medicine the patient was taking" }).click();
-  await expect(page.getByRole("heading", { name: /What reaction or symptoms did the patient have/ })).toBeVisible();
-  await page.getByLabel("Your answer or additional details").fill("Rash");
+  await page.getByLabel("Your answer or additional details").fill("Rash on 14/10/2026");
   await page.getByRole("button", { name: "Send answer" }).click();
-  await expect(page.getByText(/When did the reaction start/)).toBeVisible();
+  // One question for the suspected medicine, with the medicines found as buttons; the other is placed by itself.
+  await expect(page.getByRole("heading", { name: "Which medicine do you suspect caused the reaction?" })).toBeVisible();
+  await page.getByRole("button", { name: "Amoxicillin 500 mg capsule", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /How is the patient now/ })).toBeVisible();
   await page.reload();
-  await expect(page.getByText(/When did the reaction start/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /How is the patient now/ })).toBeVisible();
   await expect(page.locator("main")).not.toContainText(/Ollama|Gemini|Claude|paid fallback|AI model/);
   // The unclear "SOS" reading went in, marked for a look at the final confirmation.
   await expect(page.getByText(/Please take a quick look/)).toBeVisible();

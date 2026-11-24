@@ -38,7 +38,10 @@ describe("chat field safety and question planning", () => {
     expect(needsEvidenceCheck("ageValue", "99", "34 years")).toBe(true);
     expect(needsEvidenceCheck("reactionTerms", "Anaphylaxis", "rash")).toBe(true);
     expect(needsEvidenceCheck("reactionStartDate", "2026-10-14", "14 October 2026")).toBe(false);
+    // Day first, as written in India: 10/12/2026 is 10 December; reading it as 12 October is flagged.
     expect(needsEvidenceCheck("reactionStartDate", "2026-10-12", "10/12/2026")).toBe(true);
+    expect(needsEvidenceCheck("reactionStartDate", "2026-12-10", "10/12/2026")).toBe(false);
+    expect(needsEvidenceCheck("startDate", "2026-11-10", "on 10/11/26")).toBe(false);
     expect(needsEvidenceCheck("gender", "FEMALE", "F")).toBe(false);
   });
   it("rejects protected and prototype properties", () => {
@@ -87,7 +90,7 @@ describe("chat field safety and question planning", () => {
     expect(nextQuestion(values, state, [], profile)?.field).not.toBe("reactionTerms");
     expect(nextQuestion(values, state, [], profile)?.field).not.toBe("weightKg");
   });
-  it("asks how a newly found medicine belongs before anything else", () => {
+  it("asks which medicine is suspected once, with the medicines found as buttons, and never asks a role per medicine", () => {
     const med = fact({
       entity: "medicine",
       entityKey: entityKey("medicine", "Cetirizine"),
@@ -95,25 +98,27 @@ describe("chat field safety and question planning", () => {
       field: "name",
       value: "Cetirizine",
     });
-    const question = nextQuestion(form(), chatState({}), [med], profile)!;
-    expect(question.kind).toBe("role");
-    expect(Object.keys(question.options!)).toEqual(["SUSPECTED", "CONCOMITANT", "TREATMENT", "SKIP"]);
+    const question = nextQuestion(form({ suspectedMedicines: [] }), chatState({}), [med], profile)!;
+    expect(question.kind).toBe("suspect");
+    expect(question.options).toEqual({ Cetirizine: "Yes, Cetirizine" });
+    // With a suspected medicine already known, a newly found one is placed without a question.
+    const next = nextQuestion(form(), chatState({}), [med], profile);
+    expect(next?.kind).not.toBe("role");
+    expect(next?.kind).not.toBe("suspect");
   });
-  it("asks the important details first, the reaction stop date after recovery, and optional ones last or never", () => {
+  it("asks the few remaining questions grouped: at most one per topic, optional ones last or never", () => {
     const values = form({ outcome: "RECOVERED", gender: "FEMALE" });
     const state = chatState({});
     const asked: string[] = [];
     for (let i = 0; i < 30; i++) {
       const q = nextQuestion(values, state, [], profile);
       if (!q) break;
-      asked.push(q.kind === "group" ? q.key.split(".").pop()! : q.field);
+      asked.push(q.field);
       deferQuestion(values, state, q);
     }
-    expect(asked.indexOf("reactionStopDate")).toBeGreaterThanOrEqual(0);
-    expect(asked).toContain("stopDate");
-    expect(asked).toContain("actionTaken");
-    expect(asked.indexOf("optionalDetails")).toBeGreaterThan(asked.indexOf("indication"));
-    expect(asked.filter((f) => ["manufacturer", "batchLot", "expiryDate"].includes(f))).toEqual([]);
+    // Before: dose, route, frequency, stop date, indication, action taken, description, treatment, history,
+    // weight and pack details were asked one by one (11 questions). Now 5, two of them optional.
+    expect(asked).toEqual(["details", "actionTaken", "treatmentHistory", "reactionStopDate", "optionalDetails"]);
     const skipping = chatState({ skipOptional: true });
     const fresh = form({ outcome: "RECOVERED" });
     for (let i = 0; i < 30; i++) {
@@ -123,17 +128,24 @@ describe("chat field safety and question planning", () => {
       deferQuestion(fresh, skipping, q);
     }
   });
+  it("asks the patient's details together and reads a typed patient line", () => {
+    const values = form({ patientInitials: "", ageValue: "", ageUnit: "", gender: "" });
+    const q = nextQuestion(values, chatState({}), [], profile)!;
+    expect(q.field).toBe("patient");
+    expect(q.fields).toEqual(["patientInitials", "ageValue", "gender", "weightKg"]);
+    expect(q.required).toBe(true);
+  });
   it("never asks a deferred question again and marks it unknown where the form allows", () => {
-    const values = form({ weightKg: "" });
+    const values = form();
     const state = chatState({});
     let q = nextQuestion(values, state, [], profile);
-    while (q && q.field !== "weightKg") {
+    while (q && q.field !== "details") {
       deferQuestion(values, state, q);
       q = nextQuestion(values, state, [], profile);
     }
     deferQuestion(values, state, q!);
-    expect(values.unknownFields).toContain("weightKg");
-    expect(nextQuestion(values, state, [], profile)?.field).not.toBe("weightKg");
+    expect(values.suspectedMedicines[0].unknownFields).toEqual(expect.arrayContaining(["dose", "route", "frequency"]));
+    expect(nextQuestion(values, state, [], profile)?.field).not.toBe("details");
   });
 });
 
@@ -292,27 +304,18 @@ describe("checks added after the reporter's live tests (1 November 2026)", () =>
     expect(needsEvidenceCheck("seriousnessCriteria", '["LIFE_THREATENING"]', "not life-threatening")).toBe(true);
   });
 
-  it("asks about another medicine once, as one optional question, never detail by detail", () => {
+  it("never asks about other medicines' details: they are optional on the form", () => {
     const values = form({
       reactionDescription: "Rash",
       reactionManagement: "Stopped",
       medicalHistory: "None",
-      suspectedMedicines: [],
-      concomitantProducts: [
-        { ...form().suspectedMedicines[0], name: "Salbutamol inhaler", route: "Inhalation" } as never,
-      ],
+      concomitantProducts: [{ ...form().suspectedMedicines[0], name: "Salbutamol inhaler" } as never],
     });
-    values.suspectedMedicines = [];
     const state = chatState({});
-    state.skipOptional = false;
-    const questions: string[] = [];
-    let question = nextQuestion(values, state, []);
-    for (let i = 0; i < 20 && question; i++) {
-      if (question.entityName === "Salbutamol inhaler") questions.push(question.text);
-      deferQuestion(values, state, question);
-      question = nextQuestion(values, state, []);
+    for (let q = nextQuestion(values, state, []); q; q = nextQuestion(values, state, [])) {
+      expect(q.entityName).not.toBe("Salbutamol inhaler");
+      deferQuestion(values, state, q);
     }
-    expect(questions).toEqual(["For Salbutamol inhaler: what dose, how often and for what? (optional)"]);
   });
 
   it("replaces a note in place so re-applying never reorders the saved state", () => {

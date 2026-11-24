@@ -44,6 +44,16 @@ function mockChat(updates: Record<string, unknown>[], roles: Record<string, unkn
     attempts: [],
   });
 }
+/** Answers the combined "what reaction, and when did it start" question, as the AI would read it. */
+async function giveReaction(user: User, id: string, view: ReportChatView) {
+  mockChat([
+    { entity: "case", entityName: "", field: "reactionTerms", value: "Rash", sourceText: "rash" },
+    { entity: "case", entityName: "", field: "reactionStartDate", value: "2026-10-14", sourceText: "14/10/2026" },
+  ]);
+  const next = await say(user, id, view, "rash on 14/10/2026");
+  vi.restoreAllMocks();
+  return next;
+}
 const lastReply = (view: ReportChatView) => view.messages.filter((m) => m.role !== "USER").at(-1)?.content ?? "";
 
 describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final confirmation", () => {
@@ -73,15 +83,15 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     expect(c.patientInitials).toBe("R.K.");
     expect(c.ageValue).toBe(34);
     expect(c.gender).toBe("FEMALE");
-    // Medicines wait for the reporter to say how they belong.
+    // Medicines wait until the reporter says which one is suspected: one question, not one per medicine.
     expect(c.suspectedMedicines).toHaveLength(0);
-    expect(view.question?.kind).toBe("role");
-    expect(view.question?.entityName).toMatch(/Amoxicillin/);
+    expect(view.question?.field).toBe("reaction");
     expect(lastReply(view)).toMatch(/Added to the report: .*Patient initials: R\.K\./);
-    view = await say(user, id, view, "SUSPECTED");
-    expect(view.question?.kind).toBe("role");
-    expect(view.question?.entityName).toMatch(/Paracetamol/);
-    view = await say(user, id, view, "Another medicine the patient was taking");
+    view = await giveReaction(user, id, view);
+    expect(view.question?.kind).toBe("suspect");
+    expect(Object.keys(view.question!.options!)).toEqual(["Amoxicillin 500 mg capsule", "Paracetamol 500 mg tablet"]);
+    view = await say(user, id, view, "Amoxicillin 500 mg capsule");
+    expect(view.summary.info.some((n) => /Paracetamol/.test(n.label) && /another medicine/.test(n.message))).toBe(true);
     c = (await loadCase(user, id)).c;
     expect(c.suspectedMedicines.map((m) => [m.name, m.dose, m.route, m.frequency])).toEqual([
       ["Amoxicillin 500 mg capsule", "1 cap", "Oral", "TID"],
@@ -133,21 +143,22 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
   it("saves direct answers immediately, asks the next question and never repeats an idempotent message", async () => {
     const { user, id } = await setup();
     let view = await getReportChat(user, id);
-    expect(view.question?.field).toBe("patientInitials");
+    // One question for the patient, read without the AI.
+    expect(view.question?.field).toBe("patient");
+    const spy = vi.spyOn(provider, "generateWithFallback");
     const body = {
       requestId: randomUUID(),
       revision: view.revision,
       lockVersion: view.lockVersion,
-      content: "C.B.",
+      content: "C.B., 34/F",
       questionKey: view.question!.key,
     };
     view = await sendReportChatMessage(user, id, body);
-    expect((await loadCase(user, id)).c.patientInitials).toBe("C.B.");
-    expect((await sendReportChatMessage(user, id, body)).messages.filter((m) => m.role === "USER")).toHaveLength(1);
-    expect(view.question?.field).toBe("ageValue");
-    view = await say(user, id, view, "34 years");
     const c = (await loadCase(user, id)).c;
-    expect([c.ageValue, c.ageUnit]).toEqual([34, "YEARS"]);
+    expect([c.patientInitials, c.ageValue, c.ageUnit, c.gender]).toEqual(["C.B.", 34, "YEARS", "FEMALE"]);
+    expect(spy).not.toHaveBeenCalled();
+    expect((await sendReportChatMessage(user, id, body)).messages.filter((m) => m.role === "USER")).toHaveLength(1);
+    expect(view.question?.field).toBe("reaction");
   }, 30_000);
 
   it("never saves 'not sure' as a value and never asks the same question forever", async () => {
@@ -160,9 +171,9 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     );
     let view = await getReportChat(user, id);
     // Work through to the optional manufacturer/batch/expiry question.
-    for (let i = 0; i < 12 && view.question && view.question.kind !== "group"; i++)
+    for (let i = 0; i < 12 && view.question && view.question.field !== "optionalDetails"; i++)
       view = await say(user, id, view, "I don't know");
-    expect(view.question?.kind).toBe("group");
+    expect(view.question?.field).toBe("optionalDetails");
     const groupKey = view.question!.key;
     for (const answer of ["not sure", "n/a"]) {
       view = await say(user, id, view, answer);
@@ -183,7 +194,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     expect(lastReply(view)).toMatch(/couldn't find a report detail/);
     view = await say(user, other, view, "hmm, let me check the box later and come back to this one please");
     expect(view.question?.key).not.toBe(optionalKey);
-    expect(lastReply(view)).toMatch(/skipped it for now/);
+    expect(view.messages.filter((m) => m.role === "ASSISTANT").at(-1)?.content).toMatch(/skipped it for now/);
   }, 60_000);
 
   it("takes several explicit facts from one message but ignores protected writes and absent quotes", async () => {
@@ -214,7 +225,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     await expect(getReportChat(other, id)).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("asks each medicine's role when one answer names several, and uses explicit roles when given", async () => {
+  it("offers the named medicines as buttons when one answer names several, and uses explicit roles when given", async () => {
     const { user, id } = await setup();
     await saveDraft(user, id, 0, form({ suspectedMedicines: [] }));
     let view = await getReportChat(user, id);
@@ -224,7 +235,8 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
       { entity: "medicine", entityName: "Paracetamol", field: "name", value: "Paracetamol", sourceText: "paracetamol" },
     ]);
     view = await say(user, id, view, "Amoxicillin and paracetamol were both given.");
-    expect(view.question?.kind).toBe("role");
+    expect(view.question?.kind).toBe("suspect");
+    expect(Object.keys(view.question!.options!)).toEqual(["Amoxicillin", "Paracetamol"]);
     vi.restoreAllMocks();
     mockChat(
       [
@@ -277,12 +289,16 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     expect((await loadCase(user, id)).c.ageValue).toBeNull();
     const heldNote = view.summary.attention.find((n) => n.kind === "HELD");
     expect(heldNote?.message).toMatch(/R\.K\..*Z\.Z\./);
-    expect(view.question?.kind).not.toBe("role");
+    // The held document's medicines are not offered.
+    expect(Object.keys(view.question?.options ?? {})).toEqual([]);
     view = await confirmDocumentBelongs(user, id, heldNote!.documentId!);
     const c = (await loadCase(user, id)).c;
     expect(c.ageValue).toBe(34);
     expect(c.patientInitials).toBe("Z.Z.");
-    expect(view.question?.kind).toBe("role");
+    expect(Object.keys(view.question?.options ?? {})).toEqual([
+      "Amoxicillin 500 mg capsule",
+      "Paracetamol 500 mg tablet",
+    ]);
   }, 30_000);
 
   it("enters the same medicine once across sources, keeps the fullest name and fills the route from the form", async () => {
@@ -423,7 +439,8 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     let view = await getReportChat(user, id);
     let c = (await loadCase(user, id)).c;
     expect([c.dateOfBirth, c.dateOfBirthApprox, c.outcome]).toEqual(["1992", true, "RECOVERED"]);
-    view = await say(user, id, view, "SUSPECTED");
+    view = await giveReaction(user, id, view);
+    view = await say(user, id, view, "Amoxicillin 500 mg capsule");
     c = (await loadCase(user, id)).c;
     expect(c.suspectedMedicines[0].actionTaken).toBe("DRUG_WITHDRAWN");
     expect(view.question?.field).not.toBe("actionTaken");
@@ -508,16 +525,20 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     const reply = lastReply(view);
     // One name per medicine in the reply: the merged spelling "Amoxycillin" is shown under the report's name.
     expect(reply).not.toMatch(/Amoxycillin \(/);
-    // "She was taking" does not say whether amoxicillin is suspected, so the reporter is asked.
-    const asked: string[] = [];
-    while (view.question?.kind === "role") {
-      asked.push(view.question.entityName);
-      view = await say(user, id, view, /amox/i.test(view.question.entityName) ? "SUSPECTED" : "CONCOMITANT");
-    }
-    expect(asked.some((n) => /amoxicillin/i.test(n))).toBe(true);
-    expect(asked.some((n) => /fluticasone nasal spray/i.test(n))).toBe(true);
-    expect(asked.some((n) => /moxifloxacin eye drops/i.test(n))).toBe(true);
-    expect(asked.some((n) => /salbutamol|ceftriaxone|cetirizine/i.test(n))).toBe(false);
+    // "She was taking" does not say whether amoxicillin is suspected: one question, with the medicines
+    // whose role the words leave open as buttons (the AI's missed medicines included).
+    expect(view.question?.kind).toBe("suspect");
+    const offered = Object.keys(view.question!.options!);
+    expect(offered.some((n) => /amoxicillin/i.test(n))).toBe(true);
+    expect(offered.some((n) => /fluticasone nasal spray/i.test(n))).toBe(true);
+    expect(offered.some((n) => /moxifloxacin eye drops/i.test(n))).toBe(true);
+    expect(offered.some((n) => /salbutamol|ceftriaxone|cetirizine/i.test(n))).toBe(false);
+    view = await say(
+      user,
+      id,
+      view,
+      offered.find((n) => /amoxicillin/i.test(n))!,
+    );
     const c = (await loadCase(user, id)).c;
     const all = [...c.suspectedMedicines, ...c.concomitantProducts];
     const find = (re: RegExp) => all.filter((m) => re.test(m.name ?? ""));
@@ -614,9 +635,11 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
       { entity: "medicine", entityName: "metformin", field: "name", value: "metformin", sourceText: "metformin" },
     ]);
     view = await say(user, id, view, "no allergies, known diabetic on metformin");
-    expect((await loadCase(user, id)).c.medicalHistory).toBe("no allergies, known diabetic on metformin");
-    expect(view.question?.kind).toBe("role");
-    expect(view.question?.entityName).toBe("metformin");
+    const after = (await loadCase(user, id)).c;
+    expect(after.medicalHistory).toBe("no allergies, known diabetic on metformin");
+    // The suspected medicine is known, so metformin is added as another medicine without a question.
+    expect(after.concomitantProducts.map((m) => m.name)).toContain("metformin");
+    expect(view.question?.kind).not.toBe("suspect");
   }, 60_000);
   // Reported on 1 November 2026: "it is given as flutifer nassal spary, but the chatbot is still asking for the route".
   it("never asks the route of a medicine typed as 'flutifer nassal spary'", async () => {
@@ -694,8 +717,10 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     await processChatJob(id, user);
     vi.restoreAllMocks();
     let view = await getReportChat(user, id);
-    expect(view.question?.kind).toBe("role");
-    view = await say(user, id, view, "SUSPECTED");
+    view = await giveReaction(user, id, view);
+    // The misread "Nanal spry" is offered under its corrected name.
+    expect(view.question?.options).toEqual({ "Flutifer Nasal spray": "Yes, Flutifer Nasal spray" });
+    view = await say(user, id, view, "Flutifer Nasal spray");
     const c = (await loadCase(user, id)).c;
     expect([c.patientInitials, c.ageValue, c.gender, c.weightKg]).toEqual(["A.K.", 24, "MALE", 54]);
     const m = c.suspectedMedicines[0];
@@ -748,7 +773,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     await processChatJob(id, user);
     vi.restoreAllMocks();
     let view = await getReportChat(user, id);
-    view = await say(user, id, view, "SUSPECTED");
+    view = await say(user, id, view, "Flutifer");
     const attention = view.summary.attention.map((n) => `${n.kind} ${n.label}`);
     expect(attention).toContain("UNCLEAR Flutifer: Batch or lot");
     expect(attention).toContain("UNCLEAR Flutifer: Expiry date");
@@ -756,4 +781,135 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
       true,
     );
   }, 30_000);
+  // Live audit, 24 November 2026: this note led to 12 questions and lost "HS" and "stat".
+  it("hospital shorthand note: no role questions, prescription details kept, treatment filled in, spelling fixed", async () => {
+    const { user, id } = await setup();
+    let view = await getReportChat(user, id);
+    const note =
+      "Pt R.K, 34/F, k/c/o DM on T. Metformin 500 BD. Started T. Azithromycin 500 OD x 3d on 10/11/26 for URTI. On 12/11 c/o generalised urticaria & itching. Azithro stopped, given Inj. Avil 1 amp IM stat + T. Cetrizine 10mg HS. Recovered by 15/11. Not serious.";
+    const c = (field: string, value: string, sourceText: string) => ({
+      entity: "case",
+      entityName: "",
+      field,
+      value,
+      sourceText,
+    });
+    const m = (entityName: string, field: string, value: string, sourceText: string) => ({
+      entity: "medicine",
+      entityName,
+      field,
+      value,
+      sourceText,
+    });
+    // What the live AI returned: no frequency for Avil and Cetrizine, no role for Metformin or Azithromycin.
+    mockChat(
+      [
+        c("patientInitials", "R.K", "R.K"),
+        c("ageValue", "34", "34/F"),
+        c("ageUnit", "YEARS", "34/F"),
+        c("gender", "FEMALE", "34/F"),
+        c("medicalHistory", "DM", "k/c/o DM"),
+        c("reactionTerms", "generalised urticaria & itching", "generalised urticaria & itching"),
+        c("reactionStartDate", "2026-11-12", "On 12/11"),
+        c("reactionStopDate", "2026-11-15", "Recovered by 15/11"),
+        c("outcome", "RECOVERED", "Recovered"),
+        c("seriousAnswer", "NO", "Not serious"),
+        m("Metformin 500mg tablet", "name", "Metformin 500mg tablet", "T. Metformin 500"),
+        m("Metformin 500mg tablet", "dose", "500", "500"),
+        m("Azithromycin 500mg tablet", "name", "Azithromycin 500mg tablet", "T. Azithromycin 500"),
+        m("Azithromycin 500mg tablet", "dose", "500", "500"),
+        m("Azithromycin 500mg tablet", "frequency", "OD", "OD"),
+        m("Azithromycin 500mg tablet", "startDate", "2026-11-10", "on 10/11/26"),
+        m("Azithromycin 500mg tablet", "stopDate", "2026-11-12", "Azithro stopped"),
+        m("Azithromycin 500mg tablet", "indication", "URTI", "for URTI"),
+        m("Azithromycin 500mg tablet", "actionTaken", "DRUG_WITHDRAWN", "Azithro stopped"),
+        m("Avil 1 ampoule injection", "name", "Avil 1 ampoule injection", "Inj. Avil"),
+        m("Avil 1 ampoule injection", "usedToTreatReaction", "true", "given Inj. Avil"),
+        m("Cetrizine 10mg tablet", "name", "Cetrizine 10mg tablet", "T. Cetrizine 10mg"),
+        m("Cetrizine 10mg tablet", "usedToTreatReaction", "true", "given Inj. Avil 1 amp IM stat + T. Cetrizine"),
+      ],
+      [
+        { entityName: "Azithromycin 500mg tablet", role: "SUSPECTED", sourceText: "Azithro stopped" },
+        { entityName: "Avil 1 ampoule injection", role: "TREATMENT", sourceText: "given Inj. Avil" },
+        { entityName: "Cetrizine 10mg tablet", role: "TREATMENT", sourceText: "T. Cetrizine" },
+      ],
+    );
+    view = await say(user, id, view, note, false);
+    vi.restoreAllMocks();
+    const r = (await loadCase(user, id)).c;
+    expect(r.suspectedMedicines.map((x) => x.name)).toEqual(["Azithromycin 500mg tablet"]);
+    const other = (re: RegExp) => r.concomitantProducts.find((x) => re.test(x.name ?? ""))!;
+    // Metformin ("k/c/o DM on T. Metformin") is placed as another medicine without a question.
+    expect(other(/metformin/i).usedToTreatReaction).toBe(false);
+    expect(other(/metformin/i).frequency).toBe("BD");
+    // Read from the prescription lines when the AI left them out.
+    expect([other(/avil/i).dose, other(/avil/i).route, other(/avil/i).frequency]).toEqual([
+      "1 amp",
+      "Intramuscular",
+      "stat",
+    ]);
+    expect([other(/cetirizine/i).name, other(/cetirizine/i).frequency]).toEqual(["Cetirizine 10mg tablet", "HS"]);
+    // Treatment is written from the medicines stopped and given.
+    expect(r.reactionManagement).toMatch(/Azithromycin 500mg tablet stopped; given Avil/);
+    expect(view.summary.info.some((n) => /Spelling corrected: "Cetrizine" to "Cetirizine"/.test(n.message))).toBe(true);
+    // Nothing required is left to ask: at most the optional questions.
+    const asked: string[] = [];
+    for (let i = 0; i < 10 && view.question; i++) {
+      asked.push(view.question.field);
+      expect(view.question.optional, view.question.text).toBe(true);
+      view = await say(user, id, view, "I don't know");
+    }
+    expect(asked.length).toBeLessThanOrEqual(2);
+  }, 60_000);
+
+  // Live audit, 24 November 2026: this message led to 18 questions and "crosin" was not recognised.
+  it("'rash after taking crosin': recognised as Crocin (paracetamol) and finished in a few short answers", async () => {
+    const { user, id } = await setup();
+    let view = await getReportChat(user, id);
+    mockChat(
+      [
+        { entity: "case", entityName: "", field: "reactionTerms", value: "Rash", sourceText: "rash" },
+        { entity: "medicine", entityName: "crosin", field: "name", value: "crosin", sourceText: "crosin" },
+      ],
+      [{ entityName: "crosin", role: "SUSPECTED", sourceText: "rash after taking crosin" }],
+    );
+    view = await say(user, id, view, "rash after taking crosin", false);
+    vi.restoreAllMocks();
+    const s = (await loadCase(user, id)).c.suspectedMedicines;
+    expect(s.map((x) => x.name)).toEqual(["crocin"]);
+    const answers: Record<string, string> = {
+      patient: "R.K., 30, F",
+      reactionStartDate: "14/11/2026",
+      outcome: "RECOVERED",
+      seriousness: "NOT_SERIOUS",
+      actionTaken: "DRUG_WITHDRAWN",
+      medicalHistory: "none",
+    };
+    const asked: string[] = [];
+    while (view.question && !view.question.optional && asked.length < 15) {
+      asked.push(view.question.field);
+      view = await say(user, id, view, answers[view.question.field] ?? "I don't know");
+    }
+    // Was 18 questions. Now: patient, start date, outcome, seriousness, medicine details, action taken, history
+    // (treatment is filled in from "drug withdrawn").
+    expect(asked).toEqual([
+      "patient",
+      "reactionStartDate",
+      "outcome",
+      "seriousness",
+      "details",
+      "actionTaken",
+      "medicalHistory",
+    ]);
+    expect((await loadCase(user, id)).c.reactionManagement).toBe("Crocin stopped.");
+    const done = (await loadCase(user, id)).c;
+    expect([done.patientInitials, done.ageValue, done.gender, done.reactionStartDate]).toEqual([
+      "R.K.",
+      30,
+      "FEMALE",
+      "2026-11-14",
+    ]);
+    expect([done.seriousAnswer, done.outcome, done.medicalHistory]).toEqual(["NO", "RECOVERED", "None"]);
+    expect(view.completeness.missing).toEqual([]);
+  }, 60_000);
 });

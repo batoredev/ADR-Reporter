@@ -20,8 +20,10 @@ import {
   normalizeRoute,
   sameMedicine,
   tidyMedicineName,
+  correctMedicineSpelling,
 } from "./medicines";
 import { formatForDisplay, isValidPartialDate } from "./partial-date";
+import { parseIndianDate } from "./clinical-text";
 
 export const UPLOAD_LIMITS = {
   files: 20,
@@ -317,9 +319,18 @@ export function needsEvidenceCheck(field: string, value: string, quote: string):
     months.forEach((month, index) => {
       if (new RegExp(`\\b${month}[a-z]*\\b`, "i").test(quote)) known.add(String(index + 1));
     });
-    const ambiguous = quote.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-]\d{4}\b/);
-    if (ambiguous && Number(ambiguous[1]) <= 12 && Number(ambiguous[2]) <= 12 && ambiguous[1] !== ambiguous[2])
-      return true;
+    // Dates are read day first, as written in India ("10/11/26" is 10 November 2026); "26" stands for 2026,
+    // and a day and month with no year ("on 12/11") belongs to this year or the last.
+    for (const short of quote.match(/(?<=[/.-])\d{2}\b/g) ?? []) known.add(String(2000 + Number(short)));
+    // A numeric date read month first ("10/12/2026" saved as 12 October) is wrong under the day-first convention.
+    const numeric = quote.match(/\b\d{1,2}[/.-]\d{1,2}[/.-](?:\d{4}|\d{2})\b/);
+    const dayFirst = numeric ? parseIndianDate(numeric[0]) : null;
+    if (dayFirst && value.length === 10 && dayFirst !== value) return true;
+    if (/\b\d{1,2}[/.-]\d{1,2}\b(?![/.-]\d)|\b\d{1,2}(?:st|nd|rd|th)?\s+[a-z]{3,}\b(?!\s+\d)/i.test(quote)) {
+      const year = new Date().getFullYear();
+      known.add(String(year));
+      known.add(String(year - 1));
+    }
     return numbers(value).some((n) => !known.has(n));
   }
   if (numbers(value).some((n) => !known.has(n))) return true;
@@ -353,8 +364,9 @@ export function needsEvidenceCheck(field: string, value: string, quote: string):
           )[t] ?? t,
       );
     // Misspelt form words count as written ("nassal spary" supports "nasal spray").
-    const sourceTokens = new Set(tokens(tidyMedicineName(quote)));
-    return tokens(tidyMedicineName(value)).some((token) => !sourceTokens.has(token));
+    const clean = (text: string) => correctMedicineSpelling(tidyMedicineName(text)).name;
+    const sourceTokens = new Set(tokens(clean(quote)));
+    return tokens(clean(value)).some((token) => !sourceTokens.has(token));
   }
   // A listed option is clear when the words say it ("flutifer was stopped": Drug withdrawn).
   const cue = ENUM_CUES[`${field}:${value}`];
@@ -409,6 +421,9 @@ export function needsEvidenceCheck(field: string, value: string, quote: string):
     )[value]?.test(quote);
   return true;
 }
+/** A medicine name as saved: misspelt form words and reading slips corrected ("Crosin tab" → "Crocin tablet"). */
+export const medicineDisplayName = (name: string) => correctMedicineSpelling(tidyMedicineName(name)).name;
+
 export function rowFor(
   values: CaseFormValues,
   state: ChatState,
@@ -501,7 +516,7 @@ export function putFact(values: CaseFormValues, state: ChatState, fact: ChatFact
           ...(list === "suspectedMedicines"
             ? emptySuspectedMedicine()
             : { ...emptyConcomitantProduct(), usedToTreatReaction: role === "TREATMENT" }),
-          name: tidyMedicineName(fact.entityName),
+          name: medicineDisplayName(fact.entityName),
           id: `chat-new:${fact.entityKey}`,
         } as never);
         location = { list, index: values[list].length - 1 };
@@ -524,7 +539,7 @@ export function putFact(values: CaseFormValues, state: ChatState, fact: ChatFact
   // Keep the most informative name for the same medicine ("Amoxicillin 500 mg capsule" over "amoxicillin").
   row[fact.field] =
     fact.entity === "medicine" && fact.field === "name"
-      ? tidyMedicineName(bestMedicineName([typeof row.name === "string" ? row.name : "", String(parsedValue)]))
+      ? medicineDisplayName(bestMedicineName([typeof row.name === "string" ? row.name : "", String(parsedValue)]))
       : fact.field === "route" && typeof parsedValue === "string"
         ? normalizeRoute(parsedValue)
         : parsedValue;
@@ -598,7 +613,7 @@ export function unplacedMedicines(values: CaseFormValues, state: ChatState, fact
   for (const f of facts) {
     if (f.entity !== "medicine" || state.decisions[f.id] || seen.has(f.entityKey)) continue;
     if (state.roles[f.entityKey] || rowFor(values, state, f)) continue;
-    seen.set(f.entityKey, f.entityName);
+    seen.set(f.entityKey, medicineDisplayName(f.entityName));
   }
   return [...seen.entries()].map(([key, name]) => ({ key, name }));
 }
@@ -764,9 +779,9 @@ export function splitSentences(text: string): string[] {
 
 const ROLE_CUES: Partial<Record<MedicineRole, RegExp>> = {
   SUSPECTED:
-    /\b(?:suspect\w*|caus\w*|due to|because of|reaction to|reacted to|allerg\w* to|after (?:starting|taking|the \w+ dose|being given|receiving|giving)|following|culprit|blame\w*|side[- ]effects?|adverse|developed|stopped|withdrawn|discontinued|withheld)\b/i,
+    /\b(?:suspect\w*|caus\w*|due to|because of|reaction to|reacted to|allerg\w* to|after|post|induced|following|culprit|blame\w*|side[- ]effects?|adverse|developed|stopped|withdrawn|discontinued|withheld|omitted|held)\b/i,
   CONCOMITANT:
-    /\b(?:also|already|regular(?:ly)?|usual(?:ly)?|routine(?:ly)?|background|long[- ]term|chronic(?:ally)?|maintenance|other medicines?|another medicine|concomitant(?:ly)?|alongside|as well|in addition|besides|for (?:many |several |the (?:last|past) )?(?:years|months)|since (?:years|childhood|\d{4})|has been (?:on|taking)|not (?:the )?(?:suspect(?:ed)?|cause|culprit)|unrelated|not related)\b/i,
+    /\b(?:also|already|regular(?:ly)?|usual(?:ly)?|routine(?:ly)?|background|long[- ]term|chronic(?:ally)?|maintenance|other medicines?|another medicine|concomitant(?:ly)?|alongside|as well|in addition|besides|for (?:many |several |the (?:last|past) )?(?:years|months)|since (?:years|childhood|\d{4})|has been (?:on|taking)|not (?:the )?(?:suspect(?:ed)?|cause|culprit)|unrelated|not related|k\/c\/o|known case|known (?:diabetic|hypertensive|asthmatic|epileptic)|on (?:treatment|medication) for|for (?:his|her|their|the) (?:dm|htn|diabetes|hypertension|thyroid|hypothyroidism|asthma|epilepsy|bp|blood pressure|sugar))\b/i,
 };
 /**
  * Whether the message actually says the role the AI gave a medicine. A reporter
@@ -831,102 +846,185 @@ export function nextQuestion(
     return v === undefined || v === null;
   };
 
-  for (const medicine of unplacedMedicines(values, state, facts))
-    questions.push(
-      ask("medicine", medicine.name, "role", `How is ${medicine.name} related to this report?`, {
-        kind: "role",
-        required: true,
-        options: ROLE_LABELS,
-      }),
-    );
+  const asked = (key: string) => state.deferred.includes(key);
+  const filledIn = (row: object, field: string) => {
+    const value = (row as Record<string, unknown>)[field];
+    return typeof value === "string"
+      ? Boolean(value.trim())
+      : Boolean((value as { value?: string } | undefined)?.value);
+  };
+  const listOf = (parts: string[]) =>
+    parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : (parts[0] ?? "");
+  const group = (entity: EntityKind, name: string, field: string, text: string, fields: string[], extra = {}) =>
+    ask(entity, name, field, text, { kind: "group", fields, options: undefined, ...extra });
 
-  // Required by PvPI.
-  if (empty("patientInitials"))
+  // 1. The patient, in one question ("R.K., 34, female").
+  const patientMissing = [
+    empty("patientInitials") ? "patientInitials" : "",
+    empty("ageValue") && empty("dateOfBirth") ? "ageValue" : "",
+    empty("gender") && !unknown.has("gender") ? "gender" : "",
+  ].filter(Boolean);
+  if (patientMissing.some((f) => f !== "gender") && !asked("case.patient"))
     questions.push(
-      ask("case", "", "patientInitials", "What are the patient's initials? Initials only, never the full name.", {
-        required: true,
-      }),
-    );
-  if (empty("ageValue") && empty("dateOfBirth"))
-    questions.push(
-      ask("case", "", "ageValue", "How old was the patient when the reaction began? A date of birth also works.", {
-        required: true,
-      }),
-    );
-  if (values.ageValue && !values.ageUnit)
-    questions.push(ask("case", "", "ageUnit", "Is that age in years, months, weeks or days?", { required: true }));
-  if (empty("reactionTerms"))
-    questions.push(
-      ask("case", "", "reactionTerms", "What reaction or symptoms did the patient have?", { required: true }),
-    );
-  if (empty("reactionStartDate"))
-    questions.push(
-      ask("case", "", "reactionStartDate", "When did the reaction start? A month and year, or just a year, is fine.", {
-        required: true,
-      }),
-    );
-  const named = <T extends { name: string }>(rows: T[]) => rows.filter((r) => r.name.trim());
-  if (!named(values.suspectedMedicines).length) {
-    const others = named(values.concomitantProducts);
-    questions.push(
-      ask("medicine", "", "name", "Which medicine do you suspect caused the reaction? Give its name and strength.", {
-        kind: "suspect",
-        required: true,
-        options: others.length ? Object.fromEntries(others.map((r) => [r.name, r.name])) : undefined,
-      }),
-    );
-  }
-  // Important for a usable report.
-  if (empty("outcome") && !unknown.has("outcome"))
-    questions.push(ask("case", "", "outcome", "What is the patient's current outcome?"));
-  const recovered = ["RECOVERED", "RECOVERED_WITH_SEQUELAE", "FATAL"].includes(values.outcome);
-  if (recovered && !values.reactionOngoing && empty("reactionStopDate") && !unknown.has("reactionStopDate"))
-    questions.push(ask("case", "", "reactionStopDate", "When did the reaction stop?"));
-  if (empty("seriousAnswer") && !values.seriousnessCriteria.length && !unknown.has("seriousAnswer"))
-    questions.push(
-      ask(
+      group(
         "case",
         "",
-        "seriousAnswer",
-        "Was the reaction serious? (death, life-threatening, hospital admission, disability, birth defect or other medically important)",
+        "patient",
+        `About the patient: ${listOf(
+          patientMissing.map((f) => ({ patientInitials: "initials", ageValue: "age", gender: "gender" })[f]!),
+        )}${empty("weightKg") ? " (and weight, if known)" : ""}? For example: R.K., 34, female.`,
+        [...patientMissing, ...(empty("weightKg") ? ["weightKg"] : [])],
+        { required: true },
       ),
+    );
+  if (asked("case.patient")) {
+    if (empty("patientInitials"))
+      questions.push(
+        ask("case", "", "patientInitials", "What are the patient's initials? Initials only, never the full name.", {
+          required: true,
+        }),
+      );
+    if (empty("ageValue") && empty("dateOfBirth"))
+      questions.push(
+        ask("case", "", "ageValue", "How old was the patient when the reaction began? A date of birth also works.", {
+          required: true,
+        }),
+      );
+  }
+  if (patientMissing.length === 1 && patientMissing[0] === "gender" && !asked("case.patient"))
+    questions.push(ask("case", "", "gender", "What is the patient's gender?"));
+  // Only an age under 2 needs its unit; older ages are taken as years.
+  if (values.ageValue && !values.ageUnit && Number(values.ageValue) < 2)
+    questions.push(ask("case", "", "ageUnit", "Is that age in years, months, weeks or days?", { required: true }));
+
+  // 2. The reaction and when it started, in one question.
+  if (empty("reactionTerms") && empty("reactionStartDate") && !asked("case.reaction"))
+    questions.push(
+      group(
+        "case",
+        "",
+        "reaction",
+        "What reaction did the patient have, and when did it start? For example: itchy rash on 14/10/2026.",
+        ["reactionTerms", "reactionStartDate"],
+        { required: true },
+      ),
+    );
+  else {
+    if (empty("reactionTerms"))
+      questions.push(
+        ask("case", "", "reactionTerms", "What reaction or symptoms did the patient have?", { required: true }),
+      );
+    if (empty("reactionStartDate"))
+      questions.push(
+        ask(
+          "case",
+          "",
+          "reactionStartDate",
+          `When did the ${values.reactionTerms.trim() || "reaction"} start? A month and year is fine.`,
+          { required: true },
+        ),
+      );
+  }
+
+  // 3. The suspected medicine: one question, with the medicines already named as buttons.
+  const named = <T extends { name: string }>(rows: T[]) => rows.filter((r) => r.name.trim());
+  if (!named(values.suspectedMedicines).length) {
+    // Medicines whose role is still open; if none, the other medicines already in the report.
+    const open = unplacedMedicines(values, state, facts).map((m) => m.name);
+    const candidates = open.length
+      ? open
+      : named(values.concomitantProducts)
+          .filter((r) => !r.usedToTreatReaction)
+          .map((r) => r.name);
+    questions.push(
+      ask(
+        "medicine",
+        "",
+        "name",
+        candidates.length === 1
+          ? `Do you suspect ${candidates[0]} caused the reaction? If not, name the medicine you suspect.`
+          : candidates.length
+            ? "Which medicine do you suspect caused the reaction?"
+            : "Which medicine do you suspect caused the reaction? Give its name and strength.",
+        {
+          kind: "suspect",
+          required: true,
+          options: candidates.length
+            ? Object.fromEntries(candidates.map((name) => [name, candidates.length === 1 ? `Yes, ${name}` : name]))
+            : undefined,
+        },
+      ),
+    );
+  }
+
+  // 4. Outcome and seriousness: one tap each.
+  if (empty("outcome") && !unknown.has("outcome"))
+    questions.push(ask("case", "", "outcome", "How is the patient now?"));
+  if (empty("seriousAnswer") && !values.seriousnessCriteria.length && !unknown.has("seriousAnswer"))
+    questions.push(
+      ask("case", "", "seriousness", "Was the reaction serious? Choose the one that applies.", {
+        options: { NOT_SERIOUS: "Not serious", ...FIELD_OPTIONS.seriousnessCriteria },
+      }),
     );
   if (values.seriousAnswer === "YES" && !values.seriousnessCriteria.length)
     questions.push(ask("case", "", "seriousnessCriteria", "Which of these applied?"));
   if (values.seriousnessCriteria.includes("DEATH") && empty("deathDate"))
     questions.push(ask("case", "", "deathDate", "What was the date of death?"));
-  if (empty("gender") && !unknown.has("gender"))
-    questions.push(ask("case", "", "gender", "What is the patient's gender?"));
 
+  // 5. Each suspected medicine: its missing details in one question, then what was done with it.
   const names = [...values.suspectedMedicines, ...values.concomitantProducts]
     .filter((row) => row.name)
     .map((row) => entityKey("medicine", row.name));
   const duplicate = new Set(names.filter((name, index) => names.indexOf(name) !== index));
+  const detailWords: Record<string, string> = {
+    dose: "dose",
+    route: "route",
+    frequency: "how often",
+    startDate: "start date",
+    stopDate: "stop date",
+    indication: "what it was for",
+  };
   for (const m of named(values.suspectedMedicines)) {
     if (duplicate.has(entityKey("medicine", m.name))) continue;
-    const u = new Set(m.unknownFields);
-    const q = (field: string, text: string, extra: Partial<ChatQuestion> = {}) => {
-      const value = (m as unknown as Record<string, unknown>)[field];
-      const filled = typeof value === "string" ? value.trim() : (value as { value?: string } | undefined)?.value;
-      if (!filled && !u.has(field)) questions.push(ask("medicine", m.name, field, text, extra));
-    };
-    q("dose", `What dose of ${m.name} was given each time?`);
-    q("route", `How was ${m.name} given (for example by mouth, injection, nasal spray)?`);
-    q("frequency", `How often was ${m.name} given?`);
-    q("startDate", `When was ${m.name} started?`);
-    if (!m.ongoing) q("stopDate", `When was ${m.name} stopped? Say "still taking" if it was continued.`);
-    if (!m.actionTaken) q("actionTaken", `What was done with ${m.name} after the reaction?`);
-    if (!m.rechallenge && ["DRUG_WITHDRAWN", "DOSE_REDUCED"].includes(m.actionTaken))
-      q("rechallenge", `Was ${m.name} given again after it was stopped? If so, did the reaction come back?`);
-    q("indication", `What was ${m.name} prescribed for?`);
-  }
-  if (empty("reactionDescription"))
-    questions.push(
-      ask("case", "", "reactionDescription", "In a few sentences, what happened? Include how it progressed."),
+    const missing = ["dose", "route", "frequency", "startDate", "stopDate", "indication"].filter(
+      (field) => !filledIn(m, field) && !m.unknownFields.includes(field) && !(field === "stopDate" && m.ongoing),
     );
-  if (empty("reactionManagement"))
+    if (missing.length)
+      questions.push(
+        group(
+          "medicine",
+          m.name,
+          "details",
+          `For ${m.name}: ${listOf(missing.map((f) => detailWords[f]))}? Give what you know${
+            missing.includes("stopDate") ? ', or say "still taking"' : ""
+          }.`,
+          missing,
+        ),
+      );
+    if (!m.actionTaken && !m.unknownFields.includes("actionTaken"))
+      questions.push(ask("medicine", m.name, "actionTaken", `What was done with ${m.name} after the reaction?`));
+  }
+
+  // 6. Treatment and history. Treatment is usually filled in from the medicines given for the reaction.
+  const historyMissing = [
+    empty("reactionManagement") && !unknown.has("reactionManagement") ? "reactionManagement" : "",
+    empty("medicalHistory") && !unknown.has("medicalHistory") ? "medicalHistory" : "",
+  ].filter(Boolean);
+  if (asked("case.treatmentHistory")) {
+    // Asked together once; not asked again in parts.
+  } else if (historyMissing.length === 2)
+    questions.push(
+      group(
+        "case",
+        "",
+        "treatmentHistory",
+        'Was any treatment given for the reaction, and is there relevant history (allergies, long-term illness, pregnancy, liver or kidney problems)? Say "none" if not.',
+        historyMissing,
+      ),
+    );
+  else if (historyMissing[0] === "reactionManagement")
     questions.push(ask("case", "", "reactionManagement", 'How was the reaction treated? Say "no treatment" if none.'));
-  if (empty("medicalHistory") && !unknown.has("medicalHistory"))
+  else if (historyMissing[0] === "medicalHistory")
     questions.push(
       ask(
         "case",
@@ -936,80 +1034,42 @@ export function nextQuestion(
       ),
     );
 
-  // Optional details: grouped, and skipped altogether when the reporter asks.
+  // 7. Optional details, skipped together on request.
   if (!state.skipOptional) {
-    if (empty("weightKg") && !unknown.has("weightKg"))
-      questions.push(ask("case", "", "weightKg", "What is the patient's weight in kg? (optional)", { optional: true }));
+    if (
+      ["RECOVERED", "RECOVERED_WITH_SEQUELAE"].includes(values.outcome) &&
+      !values.reactionOngoing &&
+      empty("reactionStopDate") &&
+      !unknown.has("reactionStopDate")
+    )
+      questions.push(
+        ask("case", "", "reactionStopDate", "On what date had the reaction resolved? (optional)", { optional: true }),
+      );
     for (const m of named(values.suspectedMedicines)) {
-      const fields = ["manufacturer", "batchLot", "expiryDate"].filter((field) => {
-        const value = (m as unknown as Record<string, unknown>)[field];
-        const filled = typeof value === "string" ? value.trim() : (value as { value?: string }).value;
-        return !filled && !m.unknownFields.includes(field);
-      });
-      if (fields.length)
+      if (!m.rechallenge && ["DRUG_WITHDRAWN", "DOSE_REDUCED"].includes(m.actionTaken))
         questions.push(
           ask(
+            "medicine",
+            m.name,
+            "rechallenge",
+            `Was ${m.name} given again later? If so, did the reaction come back? (optional)`,
+            {
+              optional: true,
+            },
+          ),
+        );
+      const pack = ["manufacturer", "batchLot", "expiryDate"].filter(
+        (field) => !filledIn(m, field) && !m.unknownFields.includes(field),
+      );
+      if (pack.length)
+        questions.push(
+          group(
             "medicine",
             m.name,
             "optionalDetails",
-            `Do you know the manufacturer, batch number or expiry date of ${m.name}? (optional)`,
-            { kind: "group", fields, optional: true, options: undefined },
-          ),
-        );
-    }
-    // Other medicines: one optional question each, never one question per detail.
-    const asks: Record<string, string> = {
-      dose: "what dose",
-      frequency: "how often",
-      route: "how it was taken",
-      startDate: "since when",
-      indication: "for what",
-    };
-    for (const m of named(values.concomitantProducts)) {
-      if (duplicate.has(entityKey("medicine", m.name))) continue;
-      const fields = (
-        m.usedToTreatReaction ? ["dose", "frequency"] : ["dose", "frequency", "route", "startDate", "indication"]
-      ).filter((field) => {
-        const value = (m as unknown as Record<string, unknown>)[field];
-        const filled = typeof value === "string" ? value.trim() : (value as { value?: string }).value;
-        return !filled && !m.unknownFields.includes(field);
-      });
-      const parts = fields.map((f) => asks[f]);
-      const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
-      if (fields.length)
-        questions.push(
-          ask(
-            "medicine",
-            m.name,
-            "otherDetails",
-            `For ${m.name}${m.usedToTreatReaction ? " (given for the reaction)" : ""}: ${list}? (optional)`,
-            {
-              kind: "group",
-              fields,
-              optional: true,
-              options: undefined,
-            },
-          ),
-        );
-    }
-    for (const row of values.investigations) {
-      if (!row.testName) continue;
-      const fields = ["result", "date"].filter((field) =>
-        field === "result" ? !row.result.trim() : !row.date.value && !row.unknownFields.includes("date"),
-      );
-      if (fields.length)
-        questions.push(
-          ask(
-            "investigation",
-            row.testName,
-            "testDetails",
-            `What was the result and date of ${row.testName}? (optional)`,
-            {
-              kind: "group",
-              fields,
-              optional: true,
-              options: undefined,
-            },
+            `If you have the pack of ${m.name}: manufacturer, batch number and expiry date? (optional)`,
+            pack,
+            { optional: true },
           ),
         );
     }

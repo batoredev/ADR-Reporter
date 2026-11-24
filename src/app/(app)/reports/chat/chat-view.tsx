@@ -362,8 +362,11 @@ function ChatSession({ id }: { id: string }) {
               ref={historyPanel}
             >
               <p className="max-w-lg rounded-xl bg-secondary p-4 text-sm leading-relaxed">
-                Add the documents for this fictional report, or tell me what happened. I will fill in the report as we
-                go and ask only for what is missing. You confirm everything once, before the report is submitted.
+                Add the documents for this fictional report, or describe the case in one message, the way you would
+                write it in the notes. For example: &ldquo;R.K., 34/F. T. Amoxicillin 500 TDS from 2/11 for sore throat;
+                rash on 4/11. Amox stopped, given T. Cetirizine 10mg HS. Recovered. Not serious.&rdquo; I will fill in
+                the report and ask only for what is missing. You confirm everything once, before the report is
+                submitted.
               </p>
               {data.messages.map((message) => (
                 <div

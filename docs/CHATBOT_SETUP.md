@@ -77,7 +77,18 @@ the whole report once, on **Review and submit** (the declaration covers everythi
 - A medicine written with a form or strength in a message ("Moxifloxacin eye drops", "metformin 500 mg") is never
   dropped, even when the AI reading misses it. An AI-suggested role is used only when the reporter's words say it
   ("she was also taking…", "…was stopped after the rash"); otherwise the role is asked.
-- Other medicines get one optional question each (dose, frequency, route, since when, what for), not one per detail.
+- Questions (since 24 November 2026), at most one per topic: the patient ("R.K., 34, F", read without AI), the
+  reaction with its start date, the suspected medicine (one question, the medicines found shown as buttons; every
+  other medicine is then placed automatically, as treatment when given for the reaction), outcome and seriousness
+  (one tap each), the suspected medicine's missing details in one question plus action taken, and history.
+  Treatment is written from the medicines stopped and given; the description (item 7) is written automatically when
+  the questions end. Other medicines' details are not asked. At most two optional questions (reintroduction, pack).
+- Medicine identity uses a reference list of ~400 generics, common Indian brands (Crocin, Dolo, Zifi, Monocef,
+  Augmentin…) and short forms (Azithro, Amox, PCM). Reading slips (e↔a, e↔o, a doubled or dropped letter, c↔s) are
+  the same medicine and are corrected to the listed spelling with a note; two different listed medicines are never
+  merged, so look-alikes (ampicillin/amoxicillin, prednisone/prednisolone) stay apart.
+- Dates are day first, as written in India (10/11/26 is 10 November 2026). Prescription-style lines
+  ("T. Cetirizine 10mg HS", "Inj. Avil 1 amp IM stat") fill dose, route and frequency the AI leaves empty.
 - Values that agree in other words are not reported as differing ("TDS" / "three times a day", "1 cap" / "1 capsule",
   "for fever" / "fever"). One medicine written with different strengths (Paracetamol 500 mg, Dolo 650) is flagged.
 - Medicine packs: a licence number read as the batch, a manufacturing date read as the expiry, or an expiry before the

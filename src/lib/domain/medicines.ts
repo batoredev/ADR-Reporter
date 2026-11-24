@@ -4,17 +4,17 @@
 // route a dosage form implies (a nasal spray is used nasally). They are fixed
 // rules, not AI; anything they cannot decide is left for the reporter.
 
-/** Spelling variants and common names mapped to one name. A starting list, not a complete dictionary. */
+import { ABBREVIATIONS, BRAND_NAMES, GENERIC_NAMES } from "./drug-names";
+
+/** Other spellings and names of one medicine. */
 const SYNONYMS: Record<string, string> = {
   amoxycillin: "amoxicillin",
   acetaminophen: "paracetamol",
-  crocin: "paracetamol",
-  dolo: "paracetamol",
-  calpol: "paracetamol",
   cephalexin: "cefalexin",
   frusemide: "furosemide",
   albuterol: "salbutamol",
   epinephrine: "adrenaline",
+  norepinephrine: "noradrenaline",
   lignocaine: "lidocaine",
   glyburide: "glibenclamide",
   rifampin: "rifampicin",
@@ -22,23 +22,26 @@ const SYNONYMS: Record<string, string> = {
   clavulanicacid: "clavulanate",
   "co-amoxiclav": "amoxicillin+clavulanate",
   coamoxiclav: "amoxicillin+clavulanate",
-  augmentin: "amoxicillin+clavulanate",
   cotrimoxazole: "sulfamethoxazole+trimethoprim",
   "co-trimoxazole": "sulfamethoxazole+trimethoprim",
-  septran: "sulfamethoxazole+trimethoprim",
-  bactrim: "sulfamethoxazole+trimethoprim",
-  ibuprofen: "ibuprofen",
-  brufen: "ibuprofen",
-  combiflam: "ibuprofen+paracetamol",
-  cetzine: "cetirizine",
-  allegra: "fexofenadine",
-  pantop: "pantoprazole",
-  pan: "pantoprazole",
-  glycomet: "metformin",
-  ecosprin: "aspirin",
-  disprin: "aspirin",
   acetylsalicylic: "aspirin",
+  valproic: "valproate",
+  divalproex: "valproate",
+  dicycloverine: "dicyclomine",
+  chlorphenamine: "chlorpheniramine",
+  levothyroxin: "levothyroxine",
+  thyroxine: "levothyroxine",
+  ondansetrone: "ondansetron",
 };
+
+/** Every known way of writing a medicine, mapped to its ingredient key. */
+const KNOWN = new Map<string, string>();
+for (const name of GENERIC_NAMES) KNOWN.set(name, name);
+for (const [name, key] of [...Object.entries(SYNONYMS), ...Object.entries(BRAND_NAMES)]) KNOWN.set(name, key);
+/** Ingredient keys of listed medicines: two different listed medicines are never merged. */
+const LISTED = new Set([...KNOWN.values()].flatMap((key) => key.split("+")));
+/** Names a slip may snap to: listed spellings of 4+ letters (short forms such as "pan" match exactly only). */
+const SNAP_TARGETS = [...KNOWN.keys()].filter((name) => /^[a-z]{4,}$/.test(name));
 
 /** Dosage forms, release types, routes and packaging words that do not identify the medicine. */
 const NOISE = new Set(
@@ -46,9 +49,9 @@ const NOISE = new Set(
     "tab tabs tablet tablets cap caps capsule capsules syp syr syrup susp suspension inj injection injections amp ampoule " +
     "vial vials spray sprays nasal drop drops eye eyes ear ears oint ointment cream gel lotion inhaler inhalers rotacap " +
     "rotacaps respule respules neb nebuliser nebulizer nebulisation patch patches suppository suppositories supp pessary " +
-    "pessaries sachet sachets granules powder solution soln oral iv im sc sr er xr cr mr dr od bd tds tid qid sos prn " +
-    "ds forte plus kid kids paed paediatric pediatric adult dispersible chewable effervescent topical mouthwash gargle " +
-    "lozenge lozenges strip strips infusion bottle tube pack sterile"
+    "pessaries sachet sachets granules powder solution soln oral iv im sc sr er xr cr mr dr od bd tds tid qid sos prn hs " +
+    "stat ds forte plus duo kid kids paed paediatric pediatric adult dispersible chewable effervescent topical " +
+    "mouthwash gargle lozenge lozenges strip strips infusion bottle tube pack sterile"
   ).split(" "),
 );
 
@@ -64,58 +67,143 @@ const words = (text: string) =>
   text
     .toLowerCase()
     .replace(/(\d)([a-z%µ])/g, "$1 $2")
+    // "Pan-40", "Dolo-650": a hyphen before a number only separates the strength.
+    .replace(/([a-z])-(?=\d)/g, "$1 ")
     .replace(/[^a-z0-9+%µ\s-]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
 
-/** The ingredient key of a medicine name: lower-case ingredients, salts and forms removed, sorted, "+"-joined. */
+const VOWELS = new Set("aeiouy");
+/** Letters that handwriting, typing and reading often swap. */
+const CONFUSED = new Set(["c|s", "c|k", "k|q", "s|z", "i|l", "m|n", "u|v", "i|j", "g|j", "f|v"]);
+const swapCost = (x: string, y: string) =>
+  x === y ? 0 : VOWELS.has(x) && VOWELS.has(y) ? 0.4 : CONFUSED.has(x < y ? `${x}|${y}` : `${y}|${x}`) ? 0.5 : 1;
+/** Cost of a letter written or left out: a vowel or a doubled letter is a slip, other letters are not. */
+const gapCost = (word: string, i: number) => {
+  const ch = word[i];
+  if (ch === word[i - 1] || ch === word[i + 1]) return 0.3;
+  if (ch === "h" && /[cpt]/.test(word[i - 1] ?? "")) return 0.4;
+  if (ch === "e" && i === word.length - 1) return 0.3;
+  return VOWELS.has(ch) ? 0.5 : 1;
+};
+
+/**
+ * How far apart two spellings are, counting the slips reporters and readings
+ * make as small (e↔a, e↔o, a doubled letter, a dropped final e, c↔s), so
+ * "Crosin" is close to "Crocin" and "Cefixim" to "Cefixime".
+ */
+export function slipDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = 1; i <= a.length; i++) d[i][0] = d[i - 1][0] + gapCost(a, i - 1);
+  for (let j = 1; j <= b.length; j++) d[0][j] = d[0][j - 1] + gapCost(b, j - 1);
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(
+        d[i - 1][j] + gapCost(a, i - 1),
+        d[i][j - 1] + gapCost(b, j - 1),
+        d[i - 1][j - 1] + swapCost(a[i - 1], b[j - 1]),
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 0.6);
+    }
+  return Math.round(d[a.length][b.length] * 100) / 100;
+}
+/** The largest slip a name of this length can carry and still be the same medicine. */
+const slipLimit = (length: number) => (length >= 8 ? 1.5 : length >= 5 ? 1 : 0.5);
+
+interface Snap {
+  /** Ingredient key, "+"-joined for combinations. */
+  key: string;
+  /** The listed spelling it matched. */
+  spelling: string;
+  cost: number;
+}
+const snapCache = new Map<string, Snap | null>();
+/** A written word as a listed medicine: exact, a short form, or a unique close spelling. */
+function snap(word: string): Snap | null {
+  if (snapCache.has(word)) return snapCache.get(word)!;
+  let result: Snap | null = null;
+  const exact = KNOWN.get(word) ?? ABBREVIATIONS[word];
+  if (exact) result = { key: exact, spelling: word, cost: 0 };
+  else if (/^[a-z]{4,}$/.test(word)) {
+    let best: Snap | null = null,
+      runnerUp = Infinity;
+    for (const name of SNAP_TARGETS) {
+      if (Math.abs(name.length - word.length) > 3) continue;
+      const cost = slipDistance(word, name);
+      const key = KNOWN.get(name)!;
+      if (!best || cost < best.cost) {
+        if (best && best.key !== key) runnerUp = Math.min(runnerUp, best.cost);
+        best = { key, spelling: name, cost };
+      } else if (key !== best.key) runnerUp = Math.min(runnerUp, cost);
+    }
+    // Close to exactly one listed medicine; near two (a look-alike pair) decides nothing.
+    if (best && best.cost <= slipLimit(Math.min(word.length, best.spelling.length)) && runnerUp - best.cost >= 0.5)
+      result = best;
+  }
+  snapCache.set(word, result);
+  return result;
+}
+
+/** The words of a medicine name that identify it: forms, strengths, a leading "T."/"C." and salts removed. */
+function nameWords(part: string): string[] {
+  const all = words(part);
+  const kept = all.filter(
+    (w, i) =>
+      !NOISE.has(w) &&
+      !formWordOf(w) &&
+      !/^\d+(\.\d+)?$/.test(w) &&
+      !/^(mg|mcg|µg|g|gm|ml|iu|units?|%|w\/v|w\/w)$/.test(w) &&
+      // "T. Azithro", "C. Amox": a single letter before the name is the dosage form.
+      !(i === 0 && /^[tc]$/.test(w) && all.length > 1),
+  );
+  const withoutSalts = kept.filter((w) => !SALTS.has(w));
+  return withoutSalts.length ? withoutSalts : kept;
+}
+
+/**
+ * The ingredient key of a medicine name: brands, short forms and slips resolved
+ * to the listed ingredient ("Crosin 500" and "Paracetamol" are both
+ * "paracetamol"), salts and forms removed, sorted, "+"-joined.
+ */
 export function medicineKey(name: string): string {
   const raw = name
     .toLowerCase()
     .replace(/\s*(?:\+|&|\/|\band\b|\bwith\b)\s*/g, " + ")
     .trim();
-  const direct = SYNONYMS[raw.replace(/[^a-z-]/g, "")];
+  const direct = KNOWN.get(raw.replace(/[^a-z-]/g, "")) ?? ABBREVIATIONS[raw.replace(/[^a-z-]/g, "")];
   if (direct) return direct;
-  const ingredients = raw
-    .split("+")
-    .map((part) => {
-      const kept = words(part).filter(
-        (w) =>
-          !NOISE.has(w) &&
-          !formWordOf(w) &&
-          !/^\d+(\.\d+)?$/.test(w) &&
-          !/^(mg|mcg|µg|g|gm|ml|iu|units?|%|w\/v|w\/w)$/.test(w),
-      );
-      const withoutSalts = kept.filter((w) => !SALTS.has(w));
-      const tokens = (withoutSalts.length ? withoutSalts : kept).map((w) => SYNONYMS[w] ?? w);
-      return tokens.join(" ").trim();
-    })
-    .filter(Boolean)
-    .flatMap((part) => (SYNONYMS[part.replace(/\s+/g, "")] ?? part).split("+"));
-  return [...new Set(ingredients)].sort().join("+") || raw.replace(/\s+/g, " ");
-}
-
-function editDistance(a: string, b: string): number {
-  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let previous = row[0];
-    row[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const current = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
-      previous = current;
+  const ingredients = raw.split("+").flatMap((part) => {
+    const kept = nameWords(part);
+    if (!kept.length) return [];
+    // Hyphenated or spaced brand names: "Pan-D", "Pan D", "Taxim-O".
+    const joined = KNOWN.get(kept.join("-"));
+    if (joined) return joined.split("+");
+    const out: string[] = [];
+    const unresolved: string[] = [];
+    for (const w of kept) {
+      // "Mox CV": CV is clavulanate.
+      if (w === "cv") {
+        out.push("clavulanate");
+        continue;
+      }
+      const s = snap(w);
+      if (s) out.push(...s.key.split("+"));
+      else unresolved.push(w);
     }
-  }
-  return row[b.length];
+    if (unresolved.length) out.push(unresolved.join(" "));
+    return out;
+  });
+  return [...new Set(ingredients)].sort().join("+") || raw.replace(/\s+/g, " ");
 }
 
 export type MedicineMatch = "SAME" | "TYPO" | "SIMILAR" | "DIFFERENT";
 
 /**
- * How two names relate. Look-alike drugs differ by only a few letters
- * (ampicillin/amoxicillin, prednisone/prednisolone), so only identical
- * ingredients or a one-letter typo in a long name count as the same medicine.
- * Closer-but-different names are SIMILAR: shown for checking, never merged.
+ * How two names relate. Readings that are one slip apart are the same
+ * medicine; two different listed medicines never are, however close
+ * (ampicillin/amoxicillin, prednisone/prednisolone, cefixime/cefuroxime):
+ * those are SIMILAR, shown for checking and never merged.
  */
 export function compareMedicines(a: string, b: string): MedicineMatch {
   if (!a.trim() || !b.trim()) return "DIFFERENT";
@@ -123,17 +211,49 @@ export function compareMedicines(a: string, b: string): MedicineMatch {
     y = medicineKey(b).split("+");
   if (x.join("+") === y.join("+")) return "SAME";
   if (x.length !== y.length) return "DIFFERENT";
-  const distances = x.map((part) => Math.min(...y.map((other) => editDistance(part, other))));
-  const shortest = Math.min(...x.map((p) => p.length), ...y.map((p) => p.length));
-  if (shortest >= 8 && distances.every((d) => d <= 1)) return "TYPO";
-  if (shortest >= 5 && distances.every((d) => d <= 2)) return "SIMILAR";
-  return "DIFFERENT";
+  const verdicts = x.map((part) => {
+    if (y.includes(part)) return "SAME";
+    const [other, cost] = y.map((o) => [o, slipDistance(part, o)] as const).sort((p, q) => p[1] - q[1])[0];
+    if (LISTED.has(part) && LISTED.has(other)) return cost <= 2.5 ? "SIMILAR" : "DIFFERENT";
+    const limit = slipLimit(Math.min(part.length, other.length));
+    return cost <= limit ? "TYPO" : cost <= limit + 1 ? "SIMILAR" : "DIFFERENT";
+  });
+  if (verdicts.includes("DIFFERENT")) return "DIFFERENT";
+  if (verdicts.includes("SIMILAR")) return "SIMILAR";
+  return "TYPO";
 }
 
-/** True when two names are the same medicine: same ingredients, or a one-letter typo in a long name. */
+/** True when two names are the same medicine: same ingredients, or a reading slip. */
 export function sameMedicine(a: string, b: string): boolean {
   const match = compareMedicines(a, b);
   return match === "SAME" || match === "TYPO";
+}
+
+/**
+ * A medicine name with reading slips corrected to the listed spelling
+ * ("Crosin 500" → "Crocin 500", "Cetrizine" → "Cetirizine"), and what was
+ * changed. Brand names stay brand names; unlisted names are left as written.
+ */
+export function correctMedicineSpelling(name: string): {
+  name: string;
+  changes: { from: string; to: string; cost: number }[];
+} {
+  const changes: { from: string; to: string; cost: number }[] = [];
+  const corrected = name.replace(/[A-Za-z]{4,}/g, (token) => {
+    const lower = token.toLowerCase();
+    if (NOISE.has(lower) || SALTS.has(lower) || formWordOf(lower)) return token;
+    const s = snap(lower);
+    if (!s || s.cost === 0 || s.spelling === lower) return token;
+    const to =
+      token === token.toUpperCase()
+        ? s.spelling.toUpperCase()
+        : token[0] === token[0].toUpperCase()
+          ? s.spelling[0].toUpperCase() + s.spelling.slice(1)
+          : s.spelling;
+    changes.push({ from: token, to, cost: s.cost });
+    return to;
+  });
+  return { name: corrected, changes };
 }
 
 /** The strength written in a name, e.g. "500 mg", or null. */
@@ -464,8 +584,19 @@ const isNameToken = (t: Token | undefined) =>
   !LOOK_ALIKES.has(t!.lower) &&
   !isFormToken(t);
 
+/** Common words that are also listed ingredients; they are not taken for medicines on their own. */
+const PLAIN_WORDS = new Set(
+  "iron zinc calcium vitamin magnesium potassium sodium folic lithium insulin oxygen".split(" "),
+);
+/** A listed medicine name written on its own: exact (4+ letters), or a slip in a name of 6+ letters. */
+function knownOnItsOwn(word: string): boolean {
+  if (word.length < 4 || PLAIN_WORDS.has(word) || NOT_NAMES.has(word)) return false;
+  const s = snap(word);
+  return Boolean(s && (s.cost === 0 || (word.length >= 6 && s.cost <= 0.5)));
+}
+
 /**
- * Medicine names written with a dosage form or strength, as { name, quote }.
+ * Medicine names written with a dosage form or strength, or a listed name on its own, as { name, quote }.
  * Deliberately narrow: a bare word with no form or strength is left to the AI
  * reading, and negated mentions ("no paracetamol tablets") are ignored. The
  * name has misspelt form words corrected; the quote is as written.
@@ -508,7 +639,18 @@ export function findMedicineMentions(text: string): { name: string; quote: strin
     if (before && NAME_PREFIXES.has(before.lower) && gap(before, tokens[from])) start = before.start;
     found.push({ quote: text.slice(start, tokens[to].end).trim(), at: start });
   };
+  /** A bare number right after a name is part of it ("Dolo 650", "Metformin 500"). */
+  const numberAt = (i: number) =>
+    /^\d{2,4}$/.test(tokens[i]?.text ?? "") && gap(tokens[i - 1], tokens[i]) && !UNITS.has(tokens[i + 1]?.lower ?? "")
+      ? 1
+      : 0;
   tokens.forEach((token, i) => {
+    // "T. Metformin", "C. Amox": a capital T or C with a dot is "Tab." or "Cap."
+    if (/^[TC]$/.test(token.text) && text[token.end] === "." && isNameToken(tokens[i + 1])) {
+      const strength = gap(tokens[i + 1], tokens[i + 2]) ? strengthAt(i + 2) || numberAt(i + 2) : 0;
+      add(i, i + 1 + strength);
+      return;
+    }
     // "Inj. Ceftriaxone 1 g", "Tab. Dolo"
     if (
       [...PREFIX_FORMS, ...PREFIX_FORMS_TOO].some((w) => isFormWord(token.lower, w)) &&
@@ -526,6 +668,7 @@ export function findMedicineMentions(text: string): { name: string; quote: strin
     const form = tokens[formStart] && gap(tokens[formStart - 1], tokens[formStart]) ? formAt(formStart) : 0;
     if (form) add(i, formStart + form - 1);
     else if (strength) add(i, i + strength);
+    else if (knownOnItsOwn(token.lower)) add(i, i + numberAt(i + 1));
   });
   // One entry per medicine; the longest wording wins ("Amoxycillin 500mg caps" over "Amoxycillin 500mg").
   const byKey = new Map<string, { quote: string; at: number }>();
@@ -534,7 +677,9 @@ export function findMedicineMentions(text: string): { name: string; quote: strin
     const existing = byKey.get(key);
     if (!existing || f.quote.length > existing.quote.length) byKey.set(key, f);
   }
-  return [...byKey.values()].sort((a, b) => a.at - b.at).map(({ quote }) => ({ name: tidyMedicineName(quote), quote }));
+  return [...byKey.values()]
+    .sort((a, b) => a.at - b.at)
+    .map(({ quote }) => ({ name: correctMedicineSpelling(tidyMedicineName(quote)).name, quote }));
 }
 
 /** A frequency in one wording ("TDS", "1-1-1", "three times a day" are all "3/day"), or null when unrecognised. */
@@ -560,4 +705,44 @@ export function frequencyCode(text: string): string | null {
     [/^(?:weekly|once (?:a |per )?week|once weekly)$/, "1/week"],
   ];
   return rules.find(([pattern]) => pattern.test(v))?.[1] ?? null;
+}
+
+const DOSE_TEXT =
+  /\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|gm|g|ml|iu|units?|amps?|ampoules?|vials?|tabs?|tablets?|caps?|capsules?|puffs?|drops?|sprays?|sachets?)\b/i;
+const ROUTE_TEXT =
+  /\b(?:i\.?m\.?|i\.?v\.?|s\.?c\.?|s\/c|p\.?o\.?|s\/l|per oral|orally|oral|intramuscular(?:ly)?|intravenous(?:ly)?|subcutaneous(?:ly)?|sublingual)(?![a-z])/i;
+const FREQUENCY_TEXT =
+  /\b(?:od|bd|bid|tds|tid|qid|qds|hs|sos|prn|stat|once daily|twice daily|thrice daily|once a day|twice a day|three times a day|four times a day|at bedtime|at night|[01]-[01]-[01](?:-[01])?)\b/i;
+
+/**
+ * Dose, route and frequency written next to a medicine in prescription style:
+ * "T. Cetrizine 10mg HS", "Inj. Avil 1 amp IM stat", "T. Metformin 500 BD".
+ * Each value comes with the words it was read from.
+ */
+export function prescriptionDetails(text: string): {
+  name: string;
+  dose?: string;
+  route?: string;
+  frequency?: string;
+}[] {
+  const out: { name: string; dose?: string; route?: string; frequency?: string }[] = [];
+  let from = 0;
+  for (const mention of findMedicineMentions(text)) {
+    const at = text.indexOf(mention.quote, from);
+    if (at < 0) continue;
+    from = at + mention.quote.length;
+    // The words after the name, up to the next medicine or sentence.
+    const tail = text.slice(from).match(/^[^,;\n+]*?(?=[,;\n+]|\.(?:\s|$)|\s(?:and|with|then)\s|$)/)?.[0] ?? "";
+    const dose = tail.match(DOSE_TEXT)?.[0] ?? mention.quote.match(DOSE_TEXT)?.[0];
+    const route = tail.match(ROUTE_TEXT)?.[0];
+    const frequency = tail.match(FREQUENCY_TEXT)?.[0];
+    if (dose || route || frequency)
+      out.push({
+        name: mention.name,
+        ...(dose ? { dose: dose.trim() } : {}),
+        ...(route ? { route: route.trim() } : {}),
+        ...(frequency ? { frequency: frequency.trim() } : {}),
+      });
+  }
+  return out;
 }

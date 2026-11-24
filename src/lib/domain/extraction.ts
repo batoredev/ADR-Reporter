@@ -257,7 +257,8 @@ Rules:
 - Keep dose per administration as written (for example '1 cap'). Do not substitute the strength in a medicine name for its dose, calculate totals, convert units, expand an ambiguous abbreviation, or infer a generic name from a brand.
 - Never infer stop dates from duration. Do not interpret 'improved' as 'resolved'. Do not make absent details into negative findings.
 - Include the visible field/column label in sourceText where needed to establish what a date or number means. Give sourcePage where available. A value without readable supporting text must be null or explicitly uncertain.
-- If day/month order is ambiguous, do not silently pick one: mark the reading uncertain and explain in documentNotes.
+- Documents are from Indian hospitals: numeric dates are written DAY first (10/11/26 is 2026-11-10). Mark a date uncertain only when the handwriting itself is unclear.
+- Read clinical shorthand as written: T./Tab = tablet, C./Cap = capsule, Inj. = injection, Syp. = syrup; frequencies OD, BD, TDS, QID, HS, SOS, stat, 1-0-1 are copied as written; "x 5 days" is a duration, never a stop date.
 - Set readability=UNREADABLE and return empty lists and null values if the document cannot be read; do not reconstruct plausible contents.
 - Do not decide which medicine caused any adverse reaction, do not judge seriousness, and do not add clinical judgements.
 - Medicine names: copy the name with its dosage form as written (for example 'Flutifer Nasal spray'); you may correct an obviously misspelt or unclear form word ('Nanal spry' is 'Nasal spray') but never the medicine's own name. Keep frequencies such as '0-0-1' as written.

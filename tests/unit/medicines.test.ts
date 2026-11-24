@@ -10,6 +10,8 @@ import {
   normalizeRoute,
   sameMedicine,
   tidyMedicineName,
+  correctMedicineSpelling,
+  prescriptionDetails,
 } from "@/lib/domain/medicines";
 
 describe("recognising the same medicine", () => {
@@ -32,7 +34,7 @@ describe("recognising the same medicine", () => {
     expect(sameMedicine("Augmentin", "Amoxicillin")).toBe(false);
   });
   it("merges a one-letter typo but never look-alike drugs", () => {
-    expect(compareMedicines("cetrizine", "Cetirizine 10 mg")).toBe("TYPO");
+    expect(compareMedicines("cetrizine", "Cetirizine 10 mg")).toBe("SAME");
     expect(sameMedicine("amoxicilin", "Amoxicillin")).toBe(true);
     expect(compareMedicines("Amoxicillin", "Ampicillin")).toBe("SIMILAR");
     expect(compareMedicines("Prednisone", "Prednisolone")).toBe("SIMILAR");
@@ -108,16 +110,18 @@ describe("misspelt and misread dosage forms", () => {
 });
 
 describe("medicines written in a message", () => {
-  it("finds every medicine written with a form or strength, as in the reporter's live test", () => {
+  it("finds every medicine written with a form or strength, or a listed name on its own, as in the reporter's live test", () => {
     const names = findMedicineMentions(
       "She was taking Amoxycillin 500mg caps three times a day and Dolo 650 for fever. She also used Fluticasone nasal spray, Salbutamol inhaler 2 puffs, Moxifloxacin eye drops and Inj. Ceftriaxone 1 g. She had Ampicillin last year. She was given cetirizine tablets for it.",
     ).map((m) => m.name);
     expect(names).toEqual([
       "Amoxycillin 500mg caps",
+      "Dolo 650",
       "Fluticasone nasal spray",
       "Salbutamol inhaler",
       "Moxifloxacin eye drops",
       "Inj. Ceftriaxone 1 g",
+      "Ampicillin",
       "cetirizine tablets",
     ]);
   });
@@ -151,5 +155,75 @@ describe("frequencies in different words", () => {
     expect(frequencyCode("0-0-1")).toBe(frequencyCode("at night"));
     expect(frequencyCode("BD")).toBe("2/day");
     expect(frequencyCode("when the itch is bad")).toBeNull();
+  });
+});
+
+// From the hospital-style note tested live on 24 November 2026.
+describe("medicine identity and prescription shorthand", () => {
+  it("treats reading slips, brands, short forms and abbreviations as one medicine, never look-alikes", () => {
+    const same: [string, string][] = [
+      ["Crocin", "Crosin"],
+      ["Crosin", "Paracetamol"],
+      ["Cefixime", "Cefixim"],
+      ["Zifi", "Cefixime"],
+      ["Zifi", "Zify"],
+      ["Avil", "Avel"],
+      ["Avil", "Pheniramine"],
+      ["Azee", "Azithromycin"],
+      ["T. Azithro", "Azithromycin 500 mg"],
+      ["Inj Monocef", "Ceftriaxone"],
+      ["Pan 40", "Pan-40"],
+      ["Pan D", "Pantoprazole + Domperidone"],
+      ["Mox CV 625", "Augmentin"],
+      ["Augmentin 625 Duo", "Augmentin"],
+      ["Amoxicillin", "Amoxycilin"],
+      ["Metformin", "Metformen"],
+      ["Ondansetron", "Ondensetron"],
+      ["Zerodol", "Zerodal"],
+      ["Montair", "Montiar"],
+      ["Allegra", "Alegra"],
+    ];
+    for (const [a, b] of same) expect(sameMedicine(a, b), `${a} / ${b}`).toBe(true);
+    const lookAlikes: [string, string][] = [
+      ["Amoxicillin", "Ampicillin"],
+      ["Amoxicilin", "Ampicilin"],
+      ["Prednisone", "Prednisolone"],
+      ["Cefixime", "Cefuroxime"],
+      ["Cefixime", "Cefpodoxime"],
+      ["Hydroxyzine", "Hydralazine"],
+      ["Cetirizine", "Levocetirizine"],
+      ["Omeprazole", "Esomeprazole"],
+      ["Ofloxacin", "Levofloxacin"],
+      ["Carbamazepine", "Oxcarbazepine"],
+      ["Glimepiride", "Glipizide"],
+      ["Diclofenac", "Aceclofenac"],
+      ["Clindamycin", "Clarithromycin"],
+    ];
+    for (const [a, b] of lookAlikes) expect(sameMedicine(a, b), `${a} / ${b}`).toBe(false);
+  });
+
+  it("corrects reading slips to the listed spelling, and leaves unlisted names alone", () => {
+    expect(correctMedicineSpelling("Crosin 500").name).toBe("Crocin 500");
+    expect(correctMedicineSpelling("T. Cetrizine 10mg").name).toBe("T. Cetirizine 10mg");
+    expect(correctMedicineSpelling("Ampicilin").name).toBe("Ampicillin");
+    expect(correctMedicineSpelling("Flutifer nasal spray").name).toBe("Flutifer nasal spray");
+    expect(correctMedicineSpelling("Amoxicillin").changes).toEqual([]);
+  });
+
+  it("reads dose, route and frequency written prescription style", () => {
+    expect(
+      prescriptionDetails(
+        "k/c/o DM on T. Metformin 500 BD. Azithro stopped, given Inj. Avil 1 amp IM stat + T. Cetrizine 10mg HS.",
+      ),
+    ).toEqual([
+      { name: "T. Metformin 500", frequency: "BD" },
+      { name: "Inj. Avil", dose: "1 amp", route: "IM", frequency: "stat" },
+      { name: "T. Cetirizine 10mg", dose: "10mg", frequency: "HS" },
+    ]);
+  });
+
+  it("finds a listed medicine named on its own, but not ordinary words", () => {
+    expect(findMedicineMentions("rash after taking crosin").map((m) => m.name)).toEqual(["crocin"]);
+    expect(findMedicineMentions("the evil eye, iron deficiency, on regular insulin, no paracetamol given")).toEqual([]);
   });
 });
