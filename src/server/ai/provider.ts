@@ -125,6 +125,21 @@ export class AiUnavailableError extends AiError {
 const ATTEMPT_TIMEOUT_MS: Record<string, number> = { gemini: 45_000, ollama: 60_000, anthropic: 100_000 };
 
 /**
+ * Services that refused recently are skipped for a while instead of being asked
+ * again for every page: 10 minutes after a payment, quota or key refusal,
+ * 30 seconds after "busy" or a timeout. When every service is cooling down,
+ * all are tried anyway.
+ */
+const cooldowns = new Map<string, number>();
+const COOLDOWN_RULES: [RegExp, number][] = [
+  [/\b402\b|payment|quota|usage allowance|rejected the API key/i, 10 * 60_000],
+  [/busy|too long|high demand|\b5\d\d\b/i, 30_000],
+];
+export function resetProviderCooldowns() {
+  cooldowns.clear();
+}
+
+/**
  * Runs a request on the first provider that can do it: free ones first, then
  * paid. A busy, over-quota or failing provider hands over to the next one. The
  * whole run stays inside AI_TOTAL_TIMEOUT_MS (default 140 s), below the Edge
@@ -132,7 +147,7 @@ const ATTEMPT_TIMEOUT_MS: Record<string, number> = { gemini: 45_000, ollama: 60_
  */
 export async function generateWithFallback<T>(
   request: GenerateRequest<T>,
-  options: { providers?: AiProvider[]; totalTimeoutMs?: number } = {},
+  options: { providers?: AiProvider[]; totalTimeoutMs?: number; cooldowns?: boolean } = {},
 ): Promise<AiOutcome<T>> {
   const providers = (options.providers ?? configuredProviders())
     .filter((p) => p.tier !== "paid" || ALLOW_PAID_AI)
@@ -146,7 +161,14 @@ export async function generateWithFallback<T>(
   const budget = options.totalTimeoutMs ?? (Number(process.env.AI_TOTAL_TIMEOUT_MS) || 140_000);
   const deadline = Date.now() + Math.max(1, Math.min(budget, 140_000));
   const attempts: AiAttempt[] = [];
-  for (const [index, provider] of usable.entries()) {
+  // Cooldowns apply to the configured services only (tests pass their own).
+  const tracked = options.cooldowns ?? !options.providers;
+  const cooling = (p: AiProvider) => tracked && (cooldowns.get(`${p.name}:${p.model}`) ?? 0) > Date.now();
+  const ready = usable.filter((p) => !cooling(p));
+  for (const p of usable.filter(cooling))
+    attempts.push({ provider: p.name, model: p.model, error: "Skipped: refused recently." });
+  const order = ready.length ? ready : usable;
+  for (const [index, provider] of order.entries()) {
     if (request.signal?.aborted) throw new AiUnavailableError("AI request cancelled.", attempts);
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
@@ -155,7 +177,7 @@ export async function generateWithFallback<T>(
     }
     const controller = new AbortController();
     // Reserve time for every remaining provider, including the last fallback.
-    const timeout = Math.min(ATTEMPT_TIMEOUT_MS[provider.name] ?? 60_000, remaining / (usable.length - index));
+    const timeout = Math.min(ATTEMPT_TIMEOUT_MS[provider.name] ?? 60_000, remaining / (order.length - index));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const cancel = () => controller.abort();
     request.signal?.addEventListener("abort", cancel, { once: true });
@@ -175,11 +197,10 @@ export async function generateWithFallback<T>(
       return { output: output.data, provider: provider.name, model: provider.model, meta: result.meta, attempts };
     } catch (error) {
       if (request.signal?.aborted) throw new AiUnavailableError("AI request cancelled.", attempts);
-      attempts.push({
-        provider: provider.name,
-        model: provider.model,
-        error: error instanceof AiError ? error.message : "Unexpected error.",
-      });
+      const message = error instanceof AiError ? error.message : "Unexpected error.";
+      attempts.push({ provider: provider.name, model: provider.model, error: message });
+      const pause = COOLDOWN_RULES.find(([pattern]) => pattern.test(message))?.[1];
+      if (tracked && pause) cooldowns.set(`${provider.name}:${provider.model}`, Date.now() + pause);
     } finally {
       clearTimeout(timer);
       request.signal?.removeEventListener("abort", cancel);

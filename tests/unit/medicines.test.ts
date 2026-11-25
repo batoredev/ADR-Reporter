@@ -218,12 +218,23 @@ describe("medicine identity and prescription shorthand", () => {
     ).toEqual([
       { name: "T. Metformin 500", frequency: "BD" },
       { name: "Inj. Avil", dose: "1 amp", route: "IM", frequency: "stat" },
-      { name: "T. Cetirizine 10mg", dose: "10mg", frequency: "HS" },
+      { name: "T. Cetrizine 10mg", dose: "10mg", frequency: "HS" },
     ]);
   });
 
+  it("accepts any medicine, listed or not, and keeps its name exactly as written", () => {
+    // Not in the reference list: found from its form or strength, never renamed.
+    expect(findMedicineMentions("Started Syp. Flutifer 5 ml BD and Tab. Zorvix 250 mg OD").map((m) => m.name)).toEqual([
+      "Syp. Flutifer 5 ml",
+      "Tab. Zorvix 250 mg",
+    ]);
+    expect(prescriptionDetails("Syp. MEFTAL-P (100/5) 5 ml TDS")[0]).toMatchObject({ dose: "5 ml", frequency: "TDS" });
+    expect(sameMedicine("Zorvix 250 mg", "Zorvix")).toBe(true);
+    expect(sameMedicine("Zorvix", "Zovirax")).toBe(false);
+  });
+
   it("finds a listed medicine named on its own, but not ordinary words", () => {
-    expect(findMedicineMentions("rash after taking crosin").map((m) => m.name)).toEqual(["crocin"]);
+    expect(findMedicineMentions("rash after taking crosin").map((m) => m.name)).toEqual(["crosin"]);
     expect(findMedicineMentions("the evil eye, iron deficiency, on regular insulin, no paracetamol given")).toEqual([]);
   });
 });

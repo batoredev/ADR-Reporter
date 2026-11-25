@@ -83,26 +83,25 @@ function ChatSession({ id }: { id: string }) {
   }, [id, refresh, initAttempt]);
 
   useEffect(() => {
-    if (
-      !data ||
-      reading.current ||
-      !data.jobs.some(
-        (j) =>
-          (j.status === "QUEUED" && new Date(j.nextAttemptAt) <= new Date()) ||
-          (j.status === "RUNNING" && j.leaseUntil && new Date(j.leaseUntil) < new Date()),
-      )
-    )
-      return;
+    if (!data || reading.current) return;
+    const due = data.jobs.filter(
+      (j) =>
+        (j.status === "QUEUED" && new Date(j.nextAttemptAt) <= new Date()) ||
+        (j.status === "RUNNING" && j.leaseUntil && new Date(j.leaseUntil) < new Date()),
+    ).length;
+    if (!due) return;
     reading.current = true;
-    void actions
-      .chatProcess(id)
-      .then((result) => {
-        if (mounted.current && !result.ok) setError(toolError(result.error));
-      })
-      .finally(() => {
-        reading.current = false;
-        if (mounted.current) void refresh();
-      });
+    // Up to three pages are read at the same time; each request claims its own page.
+    void Promise.all(
+      Array.from({ length: Math.min(3, due) }, () =>
+        actions.chatProcess(id).then((result) => {
+          if (mounted.current && !result.ok) setError(toolError(result.error));
+        }),
+      ),
+    ).finally(() => {
+      reading.current = false;
+      if (mounted.current) void refresh();
+    });
   }, [data, id, refresh]);
 
   useEffect(() => {

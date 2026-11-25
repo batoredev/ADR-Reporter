@@ -677,9 +677,7 @@ export function findMedicineMentions(text: string): { name: string; quote: strin
     const existing = byKey.get(key);
     if (!existing || f.quote.length > existing.quote.length) byKey.set(key, f);
   }
-  return [...byKey.values()]
-    .sort((a, b) => a.at - b.at)
-    .map(({ quote }) => ({ name: correctMedicineSpelling(tidyMedicineName(quote)).name, quote }));
+  return [...byKey.values()].sort((a, b) => a.at - b.at).map(({ quote }) => ({ name: tidyMedicineName(quote), quote }));
 }
 
 /** A frequency in one wording ("TDS", "1-1-1", "three times a day" are all "3/day"), or null when unrecognised. */

@@ -32,6 +32,8 @@ export const UPLOAD_LIMITS = {
   pagesPerPdf: 20,
   pagesPerBatch: 100,
 };
+/** Attempts per page before it is marked failed; AI services often refuse briefly when busy. */
+export const MAX_READ_ATTEMPTS = 5;
 export type EntityKind = "case" | "medicine" | "investigation";
 /** TREATMENT: a concomitant product given to treat the reaction (printed under item 7 of the PvPI form). */
 export type MedicineRole = "SUSPECTED" | "CONCOMITANT" | "TREATMENT" | "SKIP";
@@ -421,8 +423,11 @@ export function needsEvidenceCheck(field: string, value: string, quote: string):
     )[value]?.test(quote);
   return true;
 }
-/** A medicine name as saved: misspelt form words and reading slips corrected ("Crosin tab" → "Crocin tablet"). */
-export const medicineDisplayName = (name: string) => correctMedicineSpelling(tidyMedicineName(name)).name;
+/**
+ * A medicine name as saved: exactly as written or read, any medicine, listed or not. Only misspelt dosage-form
+ * words are tidied ("nassal spary" → "nasal spray"); the reference list links duplicates but never renames.
+ */
+export const medicineDisplayName = (name: string) => tidyMedicineName(name);
 
 export function rowFor(
   values: CaseFormValues,

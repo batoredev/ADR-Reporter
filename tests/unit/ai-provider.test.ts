@@ -182,3 +182,19 @@ describe("provider request compatibility", () => {
     }
   });
 });
+
+describe("services that refuse are skipped for a while", () => {
+  it("asks a service that refused for payment or quota again only after its cooldown", async () => {
+    const { resetProviderCooldowns } = await import("@/server/ai/provider");
+    resetProviderCooldowns();
+    const refusing = provider("ollama", "free", true);
+    const working = provider("gemini");
+    const ask = () => generateWithFallback(request, { providers: [refusing, working], cooldowns: true });
+    expect((await ask()).output.answer).toBe("gemini");
+    const second = await ask();
+    expect(second.output.answer).toBe("gemini");
+    expect(refusing.generate).toHaveBeenCalledTimes(1);
+    expect(second.attempts[0].error).toBe("Skipped: refused recently.");
+    resetProviderCooldowns();
+  });
+});

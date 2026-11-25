@@ -29,7 +29,7 @@ export const GENERIC_NAMES = // Antibiotics and anti-infectives
     "dicyclomine drotaverine hyoscine metamizole " +
     // Antihistamines and allergy
     "cetirizine levocetirizine fexofenadine loratadine desloratadine pheniramine chlorpheniramine hydroxyzine " +
-    "promethazine diphenhydramine bilastine rupatadine ebastine montelukast ketotifen " +
+    "promethazine diphenhydramine bilastine rupatadine ebastine montelukast ketotifen oxymetazoline xylometazoline " +
     // Gastrointestinal
     "pantoprazole omeprazole esomeprazole rabeprazole lansoprazole ranitidine famotidine domperidone metoclopramide " +
     "ondansetron granisetron itopride sucralfate lactulose bisacodyl loperamide racecadotril mesalamine sulfasalazine " +
@@ -85,6 +85,12 @@ export const BRAND_NAMES: Record<string, string> = {
   "zerodol-p": "aceclofenac+paracetamol",
   meftal: "mefenamic",
   "meftal-spas": "dicyclomine+mefenamic",
+  "meftal-p": "mefenamic",
+  ibugesic: "ibuprofen",
+  "ibugesic-plus": "ibuprofen+paracetamol",
+  nasivion: "oxymetazoline",
+  otrivin: "xylometazoline",
+  zyrtec: "cetirizine",
   ultracet: "paracetamol+tramadol",
   avil: "pheniramine",
   cetzine: "cetirizine",

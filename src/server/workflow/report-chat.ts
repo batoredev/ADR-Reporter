@@ -22,6 +22,7 @@ import {
   tidyMedicineName,
   findMedicineMentions,
   inferRoute,
+  medicineKey,
   normalizeRoute,
   prescriptionDetails,
   sameMedicine,
@@ -60,6 +61,7 @@ import {
   TEST_FIELDS,
   FIELD_OPTIONS,
   DATE_FIELDS,
+  MAX_READ_ATTEMPTS,
   ROLE_LABELS,
   MEDICINE_ROLES,
   type ChatFact,
@@ -499,7 +501,7 @@ async function applyFacts(
       const location = putFact(values, state, chosen, chosen.value);
       const now = readFactValue(values, state, chosen);
       applied.push({ fact: chosen, location });
-      // A medicine name read with a slip is saved in the listed spelling, and says so.
+      // The name is kept as written; a reading one slip from a listed medicine says which one it was matched to.
       if (chosen.entity === "medicine" && chosen.field === "name") {
         const { changes } = correctMedicineSpelling(tidyMedicineName(chosen.value));
         if (changes.length)
@@ -507,7 +509,7 @@ async function applyFacts(
             kind: changes.every((c) => c.cost <= 0.5) ? "INFERRED" : "UNCLEAR",
             label: "",
             value: now,
-            message: `Spelling corrected: ${changes.map((c) => `"${c.from}" to "${c.to}"`).join(", ")}.`,
+            message: `Kept as written; recognised as ${changes.map((c) => c.to).join(", ")} (${medicineKey(chosen.value).replace(/\+/g, " + ")}).`,
           });
       }
       if (!current) result.added.push(changeOf(chosen, location, displayValue(chosen.field, now)));
@@ -1440,7 +1442,13 @@ export async function skipChatDocument(user: CurrentUser, caseId: string, docume
     if (!access.edit) throw new WorkflowError("This report can no longer be edited.", "FORBIDDEN");
     const result = await tx.documentExtractionJob.updateMany({
       where: { caseId, documentId, status: { in: ["WAITING_PAGES", "QUEUED", "FAILED"] } },
-      data: { status: "FAILED", attempts: 3, errorMessage: "Skipped by you.", leaseToken: null, leaseUntil: null },
+      data: {
+        status: "FAILED",
+        attempts: MAX_READ_ATTEMPTS,
+        errorMessage: "Skipped by you.",
+        leaseToken: null,
+        leaseUntil: null,
+      },
     });
     if (!result.count) throw new WorkflowError("This document has no pages waiting.", "CONFLICT");
     await writeAudit(
@@ -1514,7 +1522,32 @@ export async function fillAfterReading(
   const chat = await db.reportChat.findUnique({ where: { caseId } });
   if (!chat) return fill;
   const where = `${documentName}${pages > 1 ? `, page ${page}` : ""}`;
-  const text = describeFill(fill, `Read ${where}.`);
+  // Only this document's own hold is mentioned, not every held document again.
+  const job = await db.documentExtractionJob.findUnique({ where: { id: jobId }, select: { documentId: true } });
+  const context = await loadChatContext(user, caseId).catch(() => null);
+  const thisHeld = context?.state.notes.some((n) => n.kind === "HELD" && n.documentId === job?.documentId);
+  fill.held = thisHeld ? [documentName] : [];
+  // Medicines read from this page that wait for "which medicine do you suspect" are listed too.
+  const waiting = context
+    ? [
+        ...new Set(
+          context.facts
+            .filter(
+              (f) =>
+                f.entity === "medicine" &&
+                f.field === "name" &&
+                f.documentId === job?.documentId &&
+                (f.sourcePage ?? 1) === page &&
+                !context.state.decisions[f.id] &&
+                !context.state.roles[f.entityKey],
+            )
+            .map((f) => f.entityName),
+        ),
+      ]
+    : [];
+  let text = describeFill(fill, `Read ${where}.`);
+  if (waiting.length && !thisHeld)
+    text = `${text} Medicines found: ${waiting.join(", ")}. They are added once the suspected medicine is chosen.`;
   await db.reportChatMessage.upsert({
     where: { chatId_requestId_role: { chatId: chat.id, requestId: `job:${jobId}`, role: "SYSTEM" } },
     create: {

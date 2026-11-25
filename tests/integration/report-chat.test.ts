@@ -87,6 +87,8 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     expect(c.suspectedMedicines).toHaveLength(0);
     expect(view.question?.field).toBe("reaction");
     expect(lastReply(view)).toMatch(/Added to the report: .*Patient initials: R\.K\./);
+    // The medicines read are listed even though they wait for the suspected-medicine question.
+    expect(lastReply(view)).toMatch(/Medicines found: Amoxicillin 500 mg capsule, Paracetamol 500 mg tablet\./);
     view = await giveReaction(user, id, view);
     expect(view.question?.kind).toBe("suspect");
     expect(Object.keys(view.question!.options!)).toEqual(["Amoxicillin 500 mg capsule", "Paracetamol 500 mg tablet"]);
@@ -391,7 +393,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     const job = await db.documentExtractionJob.findFirstOrThrow({ where: { caseId: id } });
     await db.documentExtractionJob.update({
       where: { id: job.id },
-      data: { status: "RUNNING", attempts: 3, leaseToken: "interrupted", leaseUntil: new Date(Date.now() - 1000) },
+      data: { status: "RUNNING", attempts: 5, leaseToken: "interrupted", leaseUntil: new Date(Date.now() - 1000) },
     });
     expect(await processChatJob(id, user)).toEqual({ processed: false });
     expect((await getReportChat(user, id)).jobs[0].status).toBe("FAILED");
@@ -784,7 +786,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     );
   }, 30_000);
   // Live audit, 24 November 2026: this note led to 12 questions and lost "HS" and "stat".
-  it("hospital shorthand note: no role questions, prescription details kept, treatment filled in, spelling fixed", async () => {
+  it("hospital shorthand note: no role questions, prescription details kept, treatment filled in, names kept as written", async () => {
     const { user, id } = await setup();
     let view = await getReportChat(user, id);
     const note =
@@ -850,10 +852,13 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
       "Intramuscular",
       "stat",
     ]);
-    expect([other(/cetirizine/i).name, other(/cetirizine/i).frequency]).toEqual(["Cetirizine 10mg tablet", "HS"]);
+    expect([other(/cetrizine/i).name, other(/cetrizine/i).frequency]).toEqual(["Cetrizine 10mg tablet", "HS"]);
     // Treatment is written from the medicines stopped and given.
     expect(r.reactionManagement).toMatch(/Azithromycin 500mg tablet stopped; given Avil/);
-    expect(view.summary.info.some((n) => /Spelling corrected: "Cetrizine" to "Cetirizine"/.test(n.message))).toBe(true);
+    // Kept as written; the recognised medicine is noted.
+    expect(
+      view.summary.info.some((n) => /Kept as written; recognised as Cetirizine \(cetirizine\)/.test(n.message)),
+    ).toBe(true);
     // Nothing required is left to ask: at most the optional questions.
     const asked: string[] = [];
     for (let i = 0; i < 10 && view.question; i++) {
@@ -878,7 +883,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     view = await say(user, id, view, "rash after taking crosin", false);
     vi.restoreAllMocks();
     const s = (await loadCase(user, id)).c.suspectedMedicines;
-    expect(s.map((x) => x.name)).toEqual(["crocin"]);
+    expect(s.map((x) => x.name)).toEqual(["crosin"]);
     const answers: Record<string, string> = {
       patient: "R.K., 30, F",
       reactionStartDate: "14/11/2026",
@@ -903,7 +908,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
       "actionTaken",
       "medicalHistory",
     ]);
-    expect((await loadCase(user, id)).c.reactionManagement).toBe("Crocin stopped.");
+    expect((await loadCase(user, id)).c.reactionManagement).toBe("Crosin stopped.");
     const done = (await loadCase(user, id)).c;
     expect([done.patientInitials, done.ageValue, done.gender, done.reactionStartDate]).toEqual([
       "R.K.",

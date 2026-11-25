@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
-import { UPLOAD_LIMITS } from "@/lib/domain/report-chat";
+import { MAX_READ_ATTEMPTS, UPLOAD_LIMITS } from "@/lib/domain/report-chat";
 import { toolError } from "@/lib/api/tool-error";
 import { db } from "@/server/db";
 import { saveFile, sniffType, readStoredFile } from "@/server/storage";
@@ -264,7 +264,12 @@ export async function processChatJob(caseId?: string, user?: CurrentUser) {
   const job = await db.$transaction(async (tx) => {
     // Exhausted leases must become terminal; otherwise a crashed third attempt would stay RUNNING forever.
     await tx.documentExtractionJob.updateMany({
-      where: { ...(caseId ? { caseId } : {}), status: "RUNNING", leaseUntil: { lt: now }, attempts: { gte: 3 } },
+      where: {
+        ...(caseId ? { caseId } : {}),
+        status: "RUNNING",
+        leaseUntil: { lt: now },
+        attempts: { gte: MAX_READ_ATTEMPTS },
+      },
       data: {
         status: "FAILED",
         leaseUntil: null,
@@ -275,7 +280,7 @@ export async function processChatJob(caseId?: string, user?: CurrentUser) {
     const rows = await tx.$queryRaw<
       { id: string }[]
     >`SELECT j.id FROM "DocumentExtractionJob" j JOIN "AdrCase" c ON c.id=j."caseId"
-      WHERE (${caseId ?? null}::text IS NULL OR j."caseId"=${caseId ?? null}) AND c.status IN ('DRAFT','RETURNED') AND j.attempts<3
+      WHERE (${caseId ?? null}::text IS NULL OR j."caseId"=${caseId ?? null}) AND c.status IN ('DRAFT','RETURNED') AND j.attempts<${MAX_READ_ATTEMPTS}
       AND ((j.status='QUEUED' AND j."nextAttemptAt"<=${now}) OR (j.status='RUNNING' AND j."leaseUntil"<${now}))
       ORDER BY j."createdAt",j."pageNumber" FOR UPDATE OF j SKIP LOCKED LIMIT 1`;
     if (!rows[0]) return null;
@@ -331,8 +336,9 @@ export async function processChatJob(caseId?: string, user?: CurrentUser) {
     await db.documentExtractionJob.updateMany({
       where: { id: job.id, leaseToken: token, status: "RUNNING" },
       data: {
-        status: job.attempts >= 3 ? "FAILED" : "QUEUED",
-        nextAttemptAt: new Date(Date.now() + Math.min(60_000, job.attempts * 15_000)),
+        status: job.attempts >= MAX_READ_ATTEMPTS ? "FAILED" : "QUEUED",
+        // 20 s, 40 s, 60 s, 90 s: long enough for a busy service to recover.
+        nextAttemptAt: new Date(Date.now() + Math.min(90_000, job.attempts * 20_000)),
         errorMessage: message,
         leaseToken: null,
         leaseUntil: null,
@@ -342,6 +348,9 @@ export async function processChatJob(caseId?: string, user?: CurrentUser) {
   return { processed: true };
 }
 
+/** Pages read at the same time by one scheduled run (each claims its own page). */
+const PARALLEL_READS = 3;
+
 export async function processScheduledChatJob(request: Request) {
   const configured = process.env.CHAT_WORKER_SECRET ?? "";
   const supplied = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
@@ -349,5 +358,6 @@ export async function processScheduledChatJob(request: Request) {
     b = Buffer.from(supplied);
   if (a.length < 32 || a.length !== b.length || !timingSafeEqual(a, b))
     throw new WorkflowError("Unauthorized.", "UNAUTHORIZED");
-  return processChatJob();
+  const results = await Promise.all(Array.from({ length: PARALLEL_READS }, () => processChatJob()));
+  return { processed: results.some((r) => r.processed), pages: results.filter((r) => r.processed).length };
 }
