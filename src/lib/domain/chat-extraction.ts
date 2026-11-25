@@ -11,7 +11,13 @@ export const CHAT_EXTRA_CASE_FIELDS = [
   "historyFlags",
   "additionalInformation",
 ] as const;
-export const CHAT_EXTRA_MED_FIELDS = ["ongoing", "actionTaken", "rechallenge", "rechallengeDose"] as const;
+export const CHAT_EXTRA_MED_FIELDS = [
+  "ongoing",
+  "actionTaken",
+  "rechallenge",
+  "rechallengeDose",
+  "composition",
+] as const;
 
 /** Additional form facts, still carrying a document quote and uncertainty. */
 export const chatExtractionSchema = documentExtractionSchema.extend({
@@ -48,6 +54,7 @@ export type ChatExtraction = z.infer<typeof chatExtractionSchema>;
 export type ExtraReading = { field: string; reading: ExtractedValue };
 
 export const CHAT_EXTRA_INSTRUCTIONS = `
+Medicine packs, strips, bottles and labels (documentType MEDICINE_PACK): each medicine on the photo gets one medications entry. name is the brand as printed (e.g. "Flutifer"); when the generic name or composition is printed (e.g. "Fluticasone Furoate Nasal Spray IP 27.5 mcg"), also add an extraFields item with field "composition" and that text, for prescriptions too. A photo of the back or side of a pack that shows no medicine name still gets one medications entry with name null and its manufacturer, batchLot and expiryDate filled; never invent the name.
 Give documentDate: the date the document was written or the prescription issued (day first, as written in India), with its label in sourceText. It is never a medicine start date or a reaction date.
 Also extract every explicitly documented form detail into extraFields.
 Case fields: dateOfBirth (ISO partial date), reactionOngoing (true/false), seriousAnswer (YES/NO/UNKNOWN),

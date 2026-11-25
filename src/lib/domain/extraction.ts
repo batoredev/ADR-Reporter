@@ -53,7 +53,14 @@ export const extractedInvestigationSchema = z.object({
   date: extracted("Date of the test or sample: ISO YYYY-MM-DD, or YYYY-MM / YYYY if partly written."),
 });
 
-export const DOCUMENT_TYPES = ["PRESCRIPTION", "LAB_REPORT", "DISCHARGE_SUMMARY", "CLINICAL_NOTE", "OTHER"] as const;
+export const DOCUMENT_TYPES = [
+  "PRESCRIPTION",
+  "LAB_REPORT",
+  "DISCHARGE_SUMMARY",
+  "CLINICAL_NOTE",
+  "MEDICINE_PACK",
+  "OTHER",
+] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
@@ -62,6 +69,7 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   DISCHARGE_SUMMARY: "Discharge summary",
   CLINICAL_NOTE: "Clinical note",
   OTHER: "Other document",
+  MEDICINE_PACK: "Medicine pack or label",
 };
 
 // Field order matters for providers that decode against the schema as a

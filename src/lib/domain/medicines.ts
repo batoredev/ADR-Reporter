@@ -51,7 +51,8 @@ const NOISE = new Set(
     "rotacaps respule respules neb nebuliser nebulizer nebulisation patch patches suppository suppositories supp pessary " +
     "pessaries sachet sachets granules powder solution soln oral iv im sc sr er xr cr mr dr od bd tds tid qid sos prn hs " +
     "stat ds forte plus duo kid kids paed paediatric pediatric adult dispersible chewable effervescent topical " +
-    "mouthwash gargle lozenge lozenges strip strips infusion bottle tube pack sterile"
+    "mouthwash gargle lozenge lozenges strip strips infusion bottle tube pack sterile ip bp usp ep nf " +
+    "solution oral suspension dry syrup paediatric drops"
   ).split(" "),
 );
 
@@ -59,7 +60,8 @@ const NOISE = new Set(
 const SALTS = new Set(
   (
     "hydrochloride hcl sodium potassium sulphate sulfate maleate citrate trihydrate monohydrate dihydrate besylate besilate " +
-    "succinate tartrate phosphate acetate bromide mesylate fumarate hyclate disodium dipropionate propionate valerate acid"
+    "succinate tartrate phosphate acetate bromide mesylate fumarate hyclate disodium dipropionate propionate valerate acid " +
+    "furoate xinafoate trihydrate anhydrous hemihydrate"
   ).split(" "),
 );
 
@@ -191,7 +193,9 @@ export function medicineKey(name: string): string {
       if (s) out.push(...s.key.split("+"));
       else unresolved.push(w);
     }
-    if (unresolved.length) out.push(unresolved.join(" "));
+    // Words next to a recognised ingredient ("Flutifer (fluticasone)", "Paracetamol Suspension IP") describe the
+    // same medicine; they are an ingredient of their own only when nothing else was recognised.
+    if (unresolved.length && !out.length) out.push(unresolved.join(" "));
     return out;
   });
   return [...new Set(ingredients)].sort().join("+") || raw.replace(/\s+/g, " ");

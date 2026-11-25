@@ -983,4 +983,124 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     expect((await loadCase(user, id)).c.reactionStartDate).toBe("2026-11-12");
     expect(view.summary.info.some((n) => /counted from the prescription date/.test(n.message))).toBe(true);
   }, 60_000);
+  // Requested 25 November 2026: the front and back photos of one pack are one medicine, not two.
+  it("pack photos: front (brand + composition) and back (no name) are entered as one medicine with all details", async () => {
+    const { user, id } = await setup();
+    await saveDraft(user, id, 0, form({ patientInitials: "A.K.", suspectedMedicines: [] }));
+    const fixture = provider.configuredProviders({ AI_PROVIDER: "fixture" })[0];
+    const base = (
+      await fixture.generate({ task: "extract-document", system: "", prompt: "", schema: chatExtractionSchema })
+    ).output;
+    const none = { value: null, sourceText: null, uncertain: false, approximate: false };
+    const read = (value: string, sourceText: string) => ({ value, sourceText, uncertain: false, approximate: false });
+    const med = (fields: Partial<(typeof base.medications)[number]>) =>
+      ({
+        ...Object.fromEntries(Object.keys(base.medications[0]).map((k) => [k, none])),
+        ...fields,
+      }) as (typeof base.medications)[number];
+    const pack = (medications: (typeof base.medications)[number][], extraFields: typeof base.extraFields = []) => ({
+      ...base,
+      documentType: "MEDICINE_PACK" as const,
+      patient: { initials: none, age: none, ageUnit: none, gender: none, weightKg: none },
+      medications,
+      extraFields,
+      documentDate: null,
+    });
+    const composition = (value: string) => ({
+      entity: "medicine" as const,
+      medicationIndex: 0,
+      field: "composition" as const,
+      reading: read(value, value),
+    });
+    const front = pack(
+      [med({ name: read("Flutifer", "Flutifer") })],
+      [composition("Fluticasone Furoate Nasal Spray IP 27.5 mcg")],
+    );
+    const back = pack([
+      med({
+        name: none,
+        batchLot: read("HND0361A", "Batch No.: HND0361A"),
+        expiryDate: read("2027-10", "Expiry Date: 10/2027"),
+        manufacturer: read("Sava Healthcare Limited", "Manufactured by: SAVA HEALTHCARE LIMITED"),
+      }),
+    ]);
+    const spy = vi.spyOn(provider, "generateWithFallback");
+    spy.mockResolvedValueOnce({ output: front, provider: "fixture", model: "test", meta: {}, attempts: [] });
+    spy.mockResolvedValueOnce({ output: back, provider: "fixture", model: "test", meta: {}, attempts: [] });
+    await uploadChatBatch(user, id, randomUUID(), [await image(), await image("fictional-prescription-scan.jpg")]);
+    await processChatJob(id, user);
+    await processChatJob(id, user);
+    vi.restoreAllMocks();
+    let view = await getReportChat(user, id);
+    // One medicine offered, not two.
+    expect(view.question?.kind).toBe("suspect");
+    expect(Object.keys(view.question!.options!)).toEqual(["Flutifer"]);
+    view = await say(user, id, view, "Flutifer");
+    // Typed later under its brand, it is still the same medicine.
+    mockChat([
+      {
+        entity: "medicine",
+        entityName: "flutifer nasal spray",
+        field: "frequency",
+        value: "0-0-1",
+        sourceText: "0-0-1",
+      },
+    ]);
+    view = await say(user, id, view, "flutifer nasal spray 0-0-1", false);
+    vi.restoreAllMocks();
+    const c = (await loadCase(user, id)).c;
+    expect(c.concomitantProducts).toHaveLength(0);
+    expect(c.suspectedMedicines).toHaveLength(1);
+    const m = c.suspectedMedicines[0];
+    expect([m.name, m.batchLot, m.expiryDate, m.manufacturer, m.route, m.frequency]).toEqual([
+      "Flutifer (Fluticasone Furoate Nasal Spray IP 27.5 mcg)",
+      "HND0361A",
+      "2027-10",
+      "Sava Healthcare Limited",
+      "Nasal",
+      "0-0-1",
+    ]);
+  }, 60_000);
+
+  it("pack photos: a back photo that only shows the composition joins the brand; an unmatched one is flagged", async () => {
+    const { user, id } = await setup();
+    await saveDraft(user, id, 0, form({ patientInitials: "A.K." }));
+    const fixture = provider.configuredProviders({ AI_PROVIDER: "fixture" })[0];
+    const base = (
+      await fixture.generate({ task: "extract-document", system: "", prompt: "", schema: chatExtractionSchema })
+    ).output;
+    const none = { value: null, sourceText: null, uncertain: false, approximate: false };
+    const read = (value: string) => ({ value, sourceText: value, uncertain: false, approximate: false });
+    const med = (fields: Partial<(typeof base.medications)[number]>) =>
+      ({
+        ...Object.fromEntries(Object.keys(base.medications[0]).map((k) => [k, none])),
+        ...fields,
+      }) as (typeof base.medications)[number];
+    const noPatient = { initials: none, age: none, ageUnit: none, gender: none, weightKg: none };
+    // A prescription with two medicines, then a pack back photo with no name and no composition: it cannot be
+    // matched to one medicine, so it is flagged instead of guessed.
+    const prescription = { ...base, patient: noPatient, documentDate: null };
+    const back = {
+      ...base,
+      documentType: "MEDICINE_PACK" as const,
+      patient: noPatient,
+      medications: [med({ name: none, batchLot: read("ZX123"), expiryDate: read("2027-01") })],
+      extraFields: [],
+      documentDate: null,
+    };
+    const spy = vi.spyOn(provider, "generateWithFallback");
+    spy.mockResolvedValueOnce({ output: prescription, provider: "fixture", model: "test", meta: {}, attempts: [] });
+    spy.mockResolvedValueOnce({ output: back, provider: "fixture", model: "test", meta: {}, attempts: [] });
+    await uploadChatBatch(user, id, randomUUID(), [await image(), await image("fictional-prescription-scan.jpg")]);
+    await processChatJob(id, user);
+    await processChatJob(id, user);
+    vi.restoreAllMocks();
+    const view = await getReportChat(user, id);
+    const flagged = view.summary.attention.find((n) => /no medicine name/.test(n.message));
+    expect(flagged?.message).toMatch(/batch ZX123, expiry 2027-01/);
+    const c = (await loadCase(user, id)).c;
+    expect(c.suspectedMedicines.some((m) => m.batchLot === "ZX123")).toBe(false);
+    // The prescription's other medicines are recorded as concomitant (the suspected one is already known).
+    expect(c.concomitantProducts.map((x) => x.name).sort()).toEqual(["Paracetamol 500 mg tablet"]);
+  }, 60_000);
 });

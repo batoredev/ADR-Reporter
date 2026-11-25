@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
-import { chatExtractionSchema } from "@/lib/domain/chat-extraction";
+import { chatExtractionSchema, type ChatExtraction } from "@/lib/domain/chat-extraction";
 import {
   SINGLE_FIELD_ORDER,
   SINGLE_FIELDS,
@@ -133,12 +133,43 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
   const state = chatState(chat.state),
     values = toFormValues(c);
 
+  // Readings in upload order, so the photos of one pack (front, back) sit next to each other.
+  const jobOrder = new Map(jobs.map((j, i) => [j.runId, i]));
+  const readings = runs
+    .flatMap((run) => {
+      const parsed = chatExtractionSchema.safeParse((run.rawResponse as { output?: unknown } | null)?.output);
+      const job = jobs.find((j) => j.runId === run.id);
+      return parsed.success && job ? [{ run, job, output: parsed.data }] : [];
+    })
+    .sort((a, b) => (jobOrder.get(a.run.id) ?? 0) - (jobOrder.get(b.run.id) ?? 0));
+  const compositionOf = (output: ChatExtraction, index: number) =>
+    output.extraFields
+      .find((e) => e.entity === "medicine" && e.medicationIndex === index && e.field === "composition")
+      ?.reading.value?.trim() || null;
+  // A brand printed with its composition ("Flutifer" / "Fluticasone Furoate Nasal Spray IP") is one medicine,
+  // so a photo showing only the brand, or only the composition, is matched to it.
+  const aliases = new Map<string, string>();
+  const packNames = new Map<string, { brand: string; composition: string }>();
+  for (const { output } of readings)
+    output.medications.forEach((med, index) => {
+      const composition = compositionOf(output, index);
+      if (!med.name.value || !composition) return;
+      const brand = medicineKey(med.name.value),
+        generic = medicineKey(composition);
+      if (brand && generic && brand !== generic) {
+        aliases.set(brand, generic);
+        if (!packNames.has(generic)) packNames.set(generic, { brand: med.name.value.trim(), composition });
+      }
+    });
+
   // Known medicines, so differently written names of one drug share a key.
   const known: { key: string; name: string }[] = [];
   const namesByKey = new Map<string, Set<string>>();
   const similar: [string, string][] = [];
   const resolveMedicine = (name: string) => {
     let key = entityKey("medicine", name);
+    const alias = aliases.get(key.slice("medicine:".length));
+    if (alias) key = `medicine:${alias}`;
     if (!known.some((k) => k.key === key)) {
       const typo = known.find((k) => compareMedicines(k.name, name) === "TYPO");
       if (typo) key = typo.key;
@@ -174,12 +205,26 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
   const documentInitials: Record<string, string | null> = {};
   // Dates written on the documents, for answers such as "2 days after the prescription".
   const prescriptionDates: string[] = [];
-  for (const run of runs) {
-    const parsed = chatExtractionSchema.safeParse((run.rawResponse as { output?: unknown } | null)?.output);
-    if (!parsed.success) continue;
-    const output = parsed.data,
-      job = jobs.find((j) => j.runId === run.id);
-    if (!job) continue;
+  // Medicines read from each document, and pack photos with no medicine name to attach afterwards.
+  const readFrom = new Map<string, Set<string>>();
+  type Add = (
+    entity: ChatFact["entity"],
+    name: string,
+    field: string,
+    reading: ExtractedValue | undefined,
+    storedName: string,
+    index?: number,
+    keyOverride?: string,
+  ) => void;
+  const orphans: {
+    documentId: string;
+    documentName: string;
+    med: ChatExtraction["medications"][number];
+    index: number;
+    output: ChatExtraction;
+    add: Add;
+  }[] = [];
+  for (const { run, job, output } of readings) {
     const written = output.documentDate?.value;
     if (written && /^\d{4}-\d{2}-\d{2}$/.test(written) && !output.documentDate?.uncertain)
       prescriptionDates.push(written);
@@ -192,15 +237,7 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
         documentInitials[run.documentId] = "CONFLICTING";
       else documentInitials[run.documentId] = initials;
     }
-    const add = (
-      entity: ChatFact["entity"],
-      name: string,
-      field: string,
-      reading: ExtractedValue | undefined,
-      storedName: string,
-      index = 0,
-      keyOverride?: string,
-    ) => {
+    const add: Add = (entity, name, field, reading, storedName, index = 0, keyOverride) => {
       if (!reading?.value || !permittedField(entity, field)) return;
       const item = run.items.find((i) => i.fieldName === storedName && i.medicationIndex === index);
       if (!item) return;
@@ -238,10 +275,23 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
       );
     }
     output.medications.forEach((med, index) => {
-      if (!med.name.value) return;
-      const key = resolveMedicine(med.name.value);
-      for (const [field, reading] of Object.entries(med))
-        add("medicine", med.name.value, field, reading, field, index, key);
+      const name = med.name.value || compositionOf(output, index);
+      if (!name) {
+        // The back of a pack: batch, expiry and maker, but no name. Matched to its medicine below.
+        if ([med.manufacturer, med.batchLot, med.expiryDate, med.dose].some((r) => r.value))
+          orphans.push({
+            documentId: run.documentId,
+            documentName: job.document.originalName,
+            med,
+            index,
+            output,
+            add,
+          });
+        return;
+      }
+      const key = resolveMedicine(name);
+      readFrom.set(run.documentId, new Set([...(readFrom.get(run.documentId) ?? []), key]));
+      for (const [field, reading] of Object.entries(med)) add("medicine", name, field, reading, field, index, key);
     });
     output.investigations.forEach((inv, index) => {
       const name = inv.testName.value ?? "";
@@ -252,7 +302,11 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
     });
     output.extraFields.forEach((extra) => {
       const name =
-        extra.entity === "medicine" ? (output.medications[extra.medicationIndex ?? -1]?.name.value ?? "") : "";
+        extra.entity === "medicine"
+          ? (output.medications[extra.medicationIndex ?? -1]?.name.value ??
+            compositionOf(output, extra.medicationIndex ?? -1) ??
+            "")
+          : "";
       if (extra.entity === "medicine" && !name) return;
       add(
         extra.entity,
@@ -264,6 +318,42 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
         extra.entity === "medicine" ? resolveMedicine(name) : undefined,
       );
     });
+  }
+  // A nameless pack photo belongs to the one medicine on the photo next to it (the other side of the pack), or
+  // to the only medicine in the report. Otherwise it is listed for the reporter instead of guessed.
+  const documentOrder = [...new Set(jobs.map((j) => j.documentId))];
+  const unmatchedPacks: { documentId: string; documentName: string; details: string }[] = [];
+  for (const o of orphans) {
+    const at = documentOrder.indexOf(o.documentId);
+    const beside = [
+      ...new Set(
+        [documentOrder[at - 1], documentOrder[at + 1]].flatMap((d) =>
+          d && readFrom.get(d)?.size === 1 ? [...readFrom.get(d)!] : [],
+        ),
+      ),
+    ];
+    const everywhere = [...namesByKey.keys()];
+    const target = beside.length === 1 ? beside[0] : everywhere.length === 1 ? everywhere[0] : null;
+    if (!target) {
+      unmatchedPacks.push({
+        documentId: o.documentId,
+        documentName: o.documentName,
+        details: [
+          o.med.batchLot.value ? `batch ${o.med.batchLot.value}` : "",
+          o.med.expiryDate.value ? `expiry ${o.med.expiryDate.value}` : "",
+          o.med.manufacturer.value ? `manufacturer ${o.med.manufacturer.value}` : "",
+        ]
+          .filter(Boolean)
+          .join(", "),
+      });
+      continue;
+    }
+    const name = [...(namesByKey.get(target) ?? [])][0] ?? target.slice("medicine:".length);
+    for (const [field, reading] of Object.entries(o.med))
+      if (field !== "name") o.add("medicine", name, field, reading, field, o.index, target);
+    for (const extra of o.output.extraFields)
+      if (extra.entity === "medicine" && extra.medicationIndex === o.index)
+        o.add("medicine", name, extra.field, extra.reading, `extra:medicine:${extra.field}`, o.index, target);
   }
   const anchorsAt = (when: Date) => dateAnchors(values, prescriptionDates, todayInAppZone(when));
   for (const message of messages) {
@@ -307,6 +397,9 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
     similar,
     prescriptionDates,
     anchorsAt,
+    aliases,
+    packNames,
+    unmatchedPacks,
   };
 }
 type ChatContext = Awaited<ReturnType<typeof loadChatContext>>;
@@ -644,6 +737,46 @@ async function applyFacts(
       name: "",
     });
   }
+
+  // A medicine seen as brand and composition on its pack is named with both: "Flutifer (Fluticasone Furoate …)".
+  for (const list of ["suspectedMedicines", "concomitantProducts"] as const)
+    values[list].forEach((row, index) => {
+      if (!row.name) return;
+      const own = medicineKey(row.name);
+      const pack = data.packNames.get(data.aliases.get(own) ?? own);
+      if (!pack) return;
+      const lower = row.name.toLowerCase();
+      if (lower.includes(pack.brand.toLowerCase()) && lower.includes(pack.composition.toLowerCase().split(/\s+/)[0]))
+        return;
+      const named = `${pack.brand} (${pack.composition})`.slice(0, 200);
+      row.name = named;
+      pendingNotes.push({
+        note: {
+          key: "",
+          kind: "INFERRED",
+          label: "",
+          value: named,
+          message: "Brand and composition read from the pack photos; the photos of one pack are entered once.",
+        },
+        location: { list, index },
+        field: "name",
+        entity: "medicine",
+        name: named,
+      });
+    });
+  // Pack photos with no medicine name that could not be matched to one medicine.
+  state.notes = state.notes.filter(
+    (n) => !n.key.startsWith("pack:") || data.unmatchedPacks.some((p) => `pack:${p.documentId}` === n.key),
+  );
+  for (const pack of data.unmatchedPacks)
+    setNote(state, {
+      key: `pack:${pack.documentId}`,
+      kind: "UNCLEAR",
+      label: pack.documentName,
+      value: "",
+      documentId: pack.documentId,
+      message: `This pack photo shows ${pack.details || "pack details"} but no medicine name, and could not be matched to one medicine. Add these details to the right medicine in the form.`,
+    });
 
   // An age of 2 or more with no unit is in years (younger ages are asked).
   if (values.ageValue && !values.ageUnit && Number(values.ageValue) >= 2) {
