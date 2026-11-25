@@ -15,6 +15,16 @@ export const CHAT_EXTRA_MED_FIELDS = ["ongoing", "actionTaken", "rechallenge", "
 
 /** Additional form facts, still carrying a document quote and uncertainty. */
 export const chatExtractionSchema = documentExtractionSchema.extend({
+  documentDate: z
+    .object({
+      value: z.string().max(40).nullable(),
+      sourceText: z.string().max(4000).nullable(),
+      uncertain: z.boolean(),
+      approximate: z.boolean().default(false),
+    })
+    .nullable()
+    .default(null)
+    .describe("The date the document was written or the prescription issued, ISO YYYY-MM-DD, or null."),
   extraFields: z
     .array(
       z.object({
@@ -38,6 +48,7 @@ export type ChatExtraction = z.infer<typeof chatExtractionSchema>;
 export type ExtraReading = { field: string; reading: ExtractedValue };
 
 export const CHAT_EXTRA_INSTRUCTIONS = `
+Give documentDate: the date the document was written or the prescription issued (day first, as written in India), with its label in sourceText. It is never a medicine start date or a reaction date.
 Also extract every explicitly documented form detail into extraFields.
 Case fields: dateOfBirth (ISO partial date), reactionOngoing (true/false), seriousAnswer (YES/NO/UNKNOWN),
 seriousnessCriteria (a JSON array of DEATH, LIFE_THREATENING, HOSPITALISATION, DISABILITY,

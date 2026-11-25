@@ -15,6 +15,7 @@ import {
   type ReportChatView,
 } from "@/server/workflow/report-chat";
 import { form } from "../fixtures/form";
+import { todayInAppZone } from "@/lib/format";
 import * as provider from "@/server/ai/provider";
 import { hasTestDb, userFor } from "./helpers";
 
@@ -559,9 +560,9 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     expect(find(/ceftriaxone/i)[0]?.route ?? "").toBe("");
     // "TID" on the prescription and "three times a day" typed agree: no difference reported.
     expect(view.summary.attention.some((n) => n.kind === "CONFLICT" && /Frequency/.test(n.label))).toBe(false);
-    // An AI reading of "last year" is described as understood, not as taken word for word.
-    const ampicillin = view.summary.attention.find((n) => /Ampicillin: Date started/.test(n.label));
-    expect(ampicillin?.message).toMatch(/Understood from your words "last year"/);
+    // "Last year" is worked out by the fixed date rules and says how, instead of being flagged as an AI guess.
+    const ampicillin = view.summary.info.find((n) => /Ampicillin: Date started/.test(n.label));
+    expect(ampicillin?.message).toMatch(/Worked out from "last year", counted from today/);
     expect(view.summary.attention.some((n) => n.kind === "SIMILAR")).toBe(true);
     // Dolo 650 was merged with the prescription's Paracetamol 500 mg: the different strength is pointed out.
     expect(view.summary.attention.some((n) => /different strengths \(500 mg, 650\)/.test(n.message))).toBe(true);
@@ -918,5 +919,68 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     ]);
     expect([done.seriousAnswer, done.outcome, done.medicalHistory]).toEqual(["NO", "RECOVERED", "None"]);
     expect(view.completeness.missing).toEqual([]);
+  }, 60_000);
+  // Requested 25 November 2026: dates given in words must be understood and entered correctly.
+  it("enters dates given in words: yesterday, days ago, and counted from the prescription date", async () => {
+    const shift = (days: number) => {
+      const d = new Date(`${todayInAppZone()}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    const noStart = { value: "", approx: false };
+    // A direct answer, worked out without the AI.
+    let { user, id } = await setup();
+    await saveDraft(user, id, 0, form({ reactionStartDate: noStart }));
+    let view = await getReportChat(user, id);
+    expect(view.question?.field).toBe("reactionStartDate");
+    const spy = vi.spyOn(provider, "generateWithFallback");
+    view = await say(user, id, view, "yesterday");
+    expect(spy).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+    expect((await loadCase(user, id)).c.reactionStartDate).toBe(shift(-1));
+    expect(view.summary.info.some((n) => /Worked out from "yesterday", counted from today/.test(n.message))).toBe(true);
+
+    // The AI's arithmetic is replaced by the fixed count ("3 days ago").
+    ({ user, id } = await setup());
+    await saveDraft(user, id, 0, form({ reactionStartDate: noStart }));
+    view = await getReportChat(user, id);
+    mockChat([
+      { entity: "case", entityName: "", field: "reactionStartDate", value: "2026-01-01", sourceText: "3 days ago" },
+    ]);
+    view = await say(user, id, view, "The rash started 3 days ago.", false);
+    vi.restoreAllMocks();
+    expect((await loadCase(user, id)).c.reactionStartDate).toBe(shift(-3));
+    expect(view.summary.attention.some((n) => /Reaction start date/.test(n.label))).toBe(false);
+
+    // Counted from the date written on the prescription.
+    ({ user, id } = await setup());
+    await saveDraft(user, id, 0, form({ patientInitials: "R.K.", reactionStartDate: noStart }));
+    await uploadChatBatch(user, id, randomUUID(), [await image()]);
+    const fixture = provider.configuredProviders({ AI_PROVIDER: "fixture" })[0];
+    const base = await fixture.generate({
+      task: "extract-document",
+      system: "",
+      prompt: "",
+      schema: chatExtractionSchema,
+    });
+    base.output.documentDate = {
+      value: "2026-11-10",
+      sourceText: "Date: 10/11/2026",
+      uncertain: false,
+      approximate: false,
+    };
+    vi.spyOn(provider, "generateWithFallback").mockResolvedValue({
+      ...base,
+      provider: "fixture",
+      model: "test",
+      attempts: [],
+    });
+    await processChatJob(id, user);
+    vi.restoreAllMocks();
+    view = await getReportChat(user, id);
+    expect(view.question?.field).toBe("reactionStartDate");
+    view = await say(user, id, view, "2 days from the day of prescription");
+    expect((await loadCase(user, id)).c.reactionStartDate).toBe("2026-11-12");
+    expect(view.summary.info.some((n) => /counted from the prescription date/.test(n.message))).toBe(true);
   }, 60_000);
 });

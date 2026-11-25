@@ -142,6 +142,8 @@ export interface ChatFact {
   messageId?: string;
   /** An answer taken word for word because it could not be understood (not an AI reading). */
   asWritten?: boolean;
+  /** For a date given in words ("yesterday", "2 days after the prescription"): what it was counted from. */
+  dateBasis?: string;
 }
 export const NOTE_KINDS = [
   "UNCLEAR",

@@ -29,7 +29,7 @@ import {
   strengthOf,
 } from "@/lib/domain/medicines";
 import { todayInAppZone } from "@/lib/format";
-import { parseIndianDate, parsePatientLine } from "@/lib/domain/clinical-text";
+import { parseIndianDate, parsePatientLine, resolveRelativeDate, type DateAnchors } from "@/lib/domain/clinical-text";
 import {
   ATTENTION_KINDS,
   chatState,
@@ -86,6 +86,18 @@ const LISTS = ["suspectedMedicines", "concomitantProducts", "investigations"] as
 const singlePaths: Record<string, string> = { "patient.age": "ageValue", "patient.ageUnit": "ageUnit" };
 type Client = Prisma.TransactionClient | typeof db;
 type Answer = z.infer<typeof chatAnswerSchema>["updates"][number];
+
+/** Dates a relative answer can be counted from: the documents' dates, medicine starts and the reaction start. */
+function dateAnchors(values: ReturnType<typeof toFormValues>, prescriptions: string[], today: string): DateAnchors {
+  return {
+    today,
+    prescriptions,
+    medicineStarts: [...values.suspectedMedicines, ...values.concomitantProducts]
+      .filter((m) => m.name && m.startDate.value)
+      .map((m) => ({ name: m.name, date: m.startDate.value })),
+    reactionStart: values.reactionStartDate.value || undefined,
+  };
+}
 
 /**
  * Facts are reconstructed from saved document readings and answers, never
@@ -160,12 +172,17 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
   }
   const facts: ChatFact[] = [];
   const documentInitials: Record<string, string | null> = {};
+  // Dates written on the documents, for answers such as "2 days after the prescription".
+  const prescriptionDates: string[] = [];
   for (const run of runs) {
     const parsed = chatExtractionSchema.safeParse((run.rawResponse as { output?: unknown } | null)?.output);
     if (!parsed.success) continue;
     const output = parsed.data,
       job = jobs.find((j) => j.runId === run.id);
     if (!job) continue;
+    const written = output.documentDate?.value;
+    if (written && /^\d{4}-\d{2}-\d{2}$/.test(written) && !output.documentDate?.uncertain)
+      prescriptionDates.push(written);
     const initials = output.patient.initials.value;
     if (initials) {
       if (
@@ -248,12 +265,17 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
       );
     });
   }
+  const anchorsAt = (when: Date) => dateAnchors(values, prescriptionDates, todayInAppZone(when));
   for (const message of messages) {
     if (message.role !== "USER" || message.status !== "COMPLETE") continue;
     const parsed = chatAnswerSchema.safeParse(message.metadata);
     if (!parsed.success) continue;
+    // "Yesterday" means the day before the message was written, not before today.
+    const anchors = anchorsAt(message.createdAt);
     parsed.data.updates.forEach((u, index) => {
       if (!permittedField(u.entity, u.field) || !quoteFound(message.content, u.sourceText)) return;
+      const resolved = DATE_FIELDS.has(u.field) ? resolveRelativeDate(u.sourceText, anchors) : null;
+      const counted = Boolean(resolved && resolved.date === u.value && !u.uncertain);
       facts.push({
         id: `message:${message.id}:${index}`,
         entity: u.entity,
@@ -263,8 +285,9 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
         value: u.value,
         quote: u.sourceText,
         approximate: u.approximate,
-        uncertain: u.uncertain || needsEvidenceCheck(u.field, u.value, u.sourceText),
+        uncertain: counted ? false : u.uncertain || needsEvidenceCheck(u.field, u.value, u.sourceText),
         asWritten: u.uncertain,
+        ...(counted ? { dateBasis: resolved!.basis } : {}),
         messageId: message.id,
       });
     });
@@ -282,6 +305,8 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
     resolveMedicine,
     namesByKey,
     similar,
+    prescriptionDates,
+    anchorsAt,
   };
 }
 type ChatContext = Awaited<ReturnType<typeof loadChatContext>>;
@@ -527,6 +552,14 @@ async function applyFacts(
             : chosen.messageId
               ? `Understood from your words "${chosen.quote}" as "${displayValue(chosen.field, now)}". Check it is right.`
               : `The reading was unclear${chosen.quote ? `: "${chosen.quote}"` : ""} (${sourceLabel(chosen)}). Check it against the document.`,
+        });
+      // A date given in words says how it was worked out.
+      if (chosen.dateBasis && !chosen.uncertain)
+        note(chosen, location, {
+          kind: "INFERRED",
+          label: "",
+          value: now,
+          message: `Worked out from "${chosen.quote}", counted from ${chosen.dateBasis}.`,
         });
       if (current && now !== current && chosen.messageId && !isName(chosen))
         note(chosen, location, {
@@ -867,7 +900,7 @@ export async function getReportChat(user: CurrentUser, caseId: string) {
 export type ReportChatView = Awaited<ReturnType<typeof getReportChat>>;
 
 /** Answers that need no AI: a listed option, an exact date, an age, a dose. Free text always goes to the AI. */
-function constrainedAnswer(question: ChatQuestion | null, content: string): Answer[] {
+function constrainedAnswer(question: ChatQuestion | null, content: string, anchors?: DateAnchors): Answer[] {
   if (!question) return [];
   const value = content.trim();
   const make = (field: string, v: string, entity = question.entity, name = question.entityName): Answer => ({
@@ -892,12 +925,22 @@ function constrainedAnswer(question: ChatQuestion | null, content: string): Answ
       return out;
     }
   }
-  // "Itchy rash on 14/10/2026": the reaction and its start date, read without the AI.
+  // "Itchy rash on 14/10/2026", "rash since 2 days", "rash yesterday": the reaction and its start, without the AI.
   if (question.field === "reaction") {
-    const m = value.match(/^(.{2,80}?)(?:,\s*|\s+(?:on|from|since|started on|starting on|starting)\s+)(.+?)\.?$/i);
-    const date = m ? parseIndianDate(m[2]) : null;
-    if (m && date && !/\d/.test(m[1]))
-      return [make("reactionTerms", m[1].trim(), "case", ""), make("reactionStartDate", date, "case", "")];
+    const m = value.match(
+      /^(.{2,80}?)(?:\s*,\s*|\s+(?=(?:on|from|since|started|starting|yesterday|today|last|day before|\d+\s*(?:days?|weeks?)|an?\s+(?:day|week))\b))(.+?)\.?$/i,
+    );
+    if (m && !/\d/.test(m[1])) {
+      const dateText = m[2].replace(/^start(?:ed|ing)\s+(?:on\s+)?/i, "");
+      const exact = parseIndianDate(dateText);
+      const counted = exact ? null : anchors ? resolveRelativeDate(dateText, anchors) : null;
+      const date = exact ?? counted?.date;
+      if (date)
+        return [
+          make("reactionTerms", m[1].trim(), "case", ""),
+          { ...make("reactionStartDate", date, "case", ""), approximate: Boolean(counted?.approximate) },
+        ];
+    }
   }
   // Seriousness in one tap: "Not serious", or the criterion that applied.
   if (question.field === "seriousness") {
@@ -920,9 +963,14 @@ function constrainedAnswer(question: ChatQuestion | null, content: string): Answ
     }
     return [];
   }
-  // Dates as written in India, day first: "14/10/26", "14 Oct 2026", "Oct 2026".
-  const date = DATE_FIELDS.has(question.field) ? parseIndianDate(value) : null;
-  if (date) return [make(question.field, date)];
+  // Dates as written in India, day first ("14/10/26", "14 Oct 2026"), or in words ("yesterday", "3 days ago",
+  // "2 days after the prescription"), counted here rather than by the AI.
+  if (DATE_FIELDS.has(question.field)) {
+    const date = parseIndianDate(value);
+    if (date) return [make(question.field, date)];
+    const counted = anchors ? resolveRelativeDate(value, anchors) : null;
+    if (counted) return [{ ...make(question.field, counted.date), approximate: counted.approximate }];
+  }
   if (question.field === "stopDate" && /^(?:still taking|still on it|continued|ongoing|not stopped)\.?$/i.test(value))
     return [make("ongoing", "true")];
   if (question.field === "reactionStopDate" && /^(?:ongoing|still ongoing|not stopped|still there)\.?$/i.test(value))
@@ -1006,6 +1054,7 @@ const CHAT_INSTRUCTIONS = (
   today: string,
 ) => `Extract explicit report facts from the latest English user message only. Return updates and roles, not advice or questions.
 Today's date is ${today}. Convert relative dates ("yesterday", "3 days ago", "last Monday") to ISO dates using it, and quote the words used.
+knownDates gives today's date, the dates written on the uploaded documents (prescriptions), medicine start dates and the reaction start date: count answers such as "2 days after the prescription", "on day 3 of amoxicillin" or "the next day" from them, and quote the reporter's words.
 The reporter works in an Indian hospital. Numeric dates are DAY first: "10/11/26" is 2026-11-10; "12/11" with no year is in the current year (or the last, if that would be in the future). Two-digit years are 20xx.
 Clinical shorthand: Pt = patient; 34/F or 34F = 34 years, female; k/c/o = known case of; h/o = history of; c/o = complains of; s/p = after; DM = diabetes; HTN = hypertension; CKD = chronic kidney disease; CAD = coronary artery disease; BA = bronchial asthma; TB = tuberculosis; URTI/UTI/LRTI = infections; T./Tab = tablet (oral); C./Cap = capsule (oral); Inj. = injection; Syp. = syrup (oral); Oint. = ointment (topical); IM, IV, SC = routes; OD = once daily; BD = twice daily; TDS/TID = three times daily; QID = four times daily; HS = at bedtime; SOS/PRN = when needed; stat = single dose at once; 1-0-1 = morning and night; "x 3d" or "x 5 days" = duration (never a stop date); amp = ampoule.
 Copy frequency codes as written ("BD", "HS", "stat"). "Azithro stopped" means the azithromycin already named was stopped (actionTaken DRUG_WITHDRAWN, role SUSPECTED). A "known case of" illness belongs in medicalHistory, and the medicine taken for it is CONCOMITANT.
@@ -1113,7 +1162,7 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
           : [];
       });
       if (nones.length) updates = nones;
-      else updates = constrainedAnswer(question, body.content);
+      else updates = constrainedAnswer(question, body.content, data.anchorsAt(new Date()));
       if (!updates.length) {
         try {
           const result = await generateWithFallback({
@@ -1131,6 +1180,7 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
                     fields: question.fields,
                   }
                 : null,
+              knownDates: data.anchorsAt(new Date()),
               knownMedicines: [...data.values.suspectedMedicines, ...data.values.concomitantProducts]
                 .map((m) => m.name)
                 .filter(Boolean),
@@ -1167,6 +1217,16 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
               approximate: false,
               uncertain: false,
             });
+        // Dates in words are counted by fixed rules, not taken from the AI's arithmetic.
+        const anchorsNow = data.anchorsAt(new Date());
+        for (const u of updates)
+          if (DATE_FIELDS.has(u.field)) {
+            const counted = resolveRelativeDate(u.sourceText, anchorsNow);
+            if (counted) {
+              u.value = counted.date;
+              u.approximate = u.approximate || counted.approximate;
+            }
+          }
         // Dose, route and frequency written prescription-style ("T. Cetrizine 10mg HS", "Inj. Avil 1 amp IM stat")
         // fill what the AI reading left empty.
         for (const line of prescriptionDetails(body.content)) {
