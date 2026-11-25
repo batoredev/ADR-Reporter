@@ -191,10 +191,12 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     const optionalKey = view.question?.key;
     view = await say(user, other, view, "hmm, let me check the box later and come back to this one please");
     expect(view.question?.key).toBe(optionalKey);
-    expect(lastReply(view)).toMatch(/couldn't find a report detail/);
+    expect(lastReply(view)).toMatch(/No report detail found in the answer/);
     view = await say(user, other, view, "hmm, let me check the box later and come back to this one please");
     expect(view.question?.key).not.toBe(optionalKey);
-    expect(view.messages.filter((m) => m.role === "ASSISTANT").at(-1)?.content).toMatch(/skipped it for now/);
+    expect(view.messages.filter((m) => m.role === "ASSISTANT").at(-1)?.content).toMatch(
+      /The question has been skipped/,
+    );
   }, 60_000);
 
   it("takes several explicit facts from one message but ignores protected writes and absent quotes", async () => {
@@ -343,7 +345,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     expect(view.summary.attention.some((n) => n.kind === "CONFLICT" && /Dose/.test(n.label))).toBe(false);
     const spray = c.concomitantProducts.find((m) => /fluticasone/i.test(m.name ?? ""));
     expect(spray?.route).toBe("Nasal");
-    expect(lastReply(view)).toMatch(/Filled in from the details given: Fluticasone nasal spray \(route Nasal\)/);
+    expect(lastReply(view)).toMatch(/Completed from the details given: Fluticasone nasal spray \(route Nasal\)/);
     expect(view.question?.field).not.toBe("route");
   }, 30_000);
 
@@ -380,7 +382,7 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     expect(c.reactionDescription).toMatch(/amoxicillin/i);
     const note = [...view.summary.attention, ...view.summary.info].find((n) => n.key === "reactionDescription");
     expect(note?.message).toMatch(/Written by the app/);
-    expect(lastReply(view)).toMatch(/I wrote the description of the reaction/);
+    expect(lastReply(view)).toMatch(/Description of the reaction \(item 7\) drafted/);
   });
 
   it("recovers an expired worker lease and lets an exhausted job be explicitly retried", async () => {

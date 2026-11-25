@@ -793,9 +793,11 @@ const list = (items: AutoFillChange[], arrow = false) => {
 /** What the assistant says after filling: exactly what was added or changed, never a vague count. */
 export function describeFill(fill: AutoFillResult, lead?: string) {
   const parts: string[] = lead ? [lead] : [];
-  if (fill.added.length) parts.push(`Added to the report: ${list(fill.added)}.`);
-  if (fill.changed.length) parts.push(`Updated: ${list(fill.changed, true)}.`);
-  if (fill.inferred.length) parts.push(`Filled in from the details given: ${list(fill.inferred)}.`);
+  // One full stop at the end, even when the last value ends with one ("Patient initials: C.B.").
+  const sentence = (text: string) => (text.endsWith(".") ? text : `${text}.`);
+  if (fill.added.length) parts.push(sentence(`Added to the report: ${list(fill.added)}`));
+  if (fill.changed.length) parts.push(sentence(`Updated: ${list(fill.changed, true)}`));
+  if (fill.inferred.length) parts.push(sentence(`Completed from the details given: ${list(fill.inferred)}`));
   if (fill.held.length)
     parts.push(`Not added: ${fill.held.join(", ")} may belong to another patient (see the report summary).`);
   return parts.join(" ");
@@ -988,14 +990,14 @@ const ROLE_PHRASES: Record<MedicineRole, [string, string]> = {
 };
 const joinNames = (names: string[]) =>
   names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
-/** "Noted: Amoxicillin is suspected of causing the reaction; Salbutamol and Fluticasone are other medicines…" */
+/** "Recorded: Amoxicillin is suspected of causing the reaction; Salbutamol and Fluticasone are other medicines…" */
 function roleSentence(noted: { name: string; role: MedicineRole }[]): string | null {
   if (!noted.length) return null;
   const parts = MEDICINE_ROLES.flatMap((role) => {
     const names = noted.filter((n) => n.role === role).map((n) => n.name);
     return names.length ? [`${joinNames(names)} ${ROLE_PHRASES[role][names.length > 1 ? 1 : 0]}`] : [];
   });
-  return `Noted: ${parts.join("; ")}.`;
+  return `Recorded: ${parts.join("; ")}.`;
 }
 
 const CHAT_INSTRUCTIONS = (
@@ -1352,17 +1354,17 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
   }
   const lead = unknown
     ? question?.required
-      ? "Noted as not known. This detail is required before the report can be submitted; you can add it later in the form."
-      : "Noted as not known."
+      ? "Recorded as not known. This field is mandatory and must be completed in the form before submission."
+      : "Recorded as not known."
     : (roleSentence(noted) ?? undefined);
   let reply = describeFill(fill, lead);
   if (!reply)
     reply = autoDeferred
-      ? "I still couldn't find that detail in your answers, so I've skipped it for now. You can add it in the form."
+      ? "No usable detail found in the answers. The question has been skipped; the detail can be added in the form."
       : (failure ??
         (updates.length
           ? "That matches what is already in the report."
-          : "I couldn't find a report detail in that. Answer the question shown, or press “I don't know”."));
+          : "No report detail found in the answer. Answer the question shown, or select “Not known”."));
   await db.reportChatMessage.upsert({
     where: { chatId_requestId_role: { chatId: data.chat.id, requestId: body.requestId, role: "ASSISTANT" } },
     create: { chatId: data.chat.id, requestId: body.requestId, role: "ASSISTANT", content: reply, status: "COMPLETE" },
@@ -1493,7 +1495,7 @@ export async function writeDescription(user: CurrentUser, caseId: string) {
     data: {
       chatId: chat.id,
       role: "SYSTEM",
-      content: `I wrote the description of the reaction (item 7) from your details: "${draft.narrative.slice(0, 600)}${draft.narrative.length > 600 ? "…" : ""}" You can change it in the form.`,
+      content: `Description of the reaction (item 7) drafted from the case details: "${draft.narrative.slice(0, 600)}${draft.narrative.length > 600 ? "…" : ""}" It can be edited in the form.`,
     },
   });
   return getReportChat(user, caseId);
@@ -1519,7 +1521,7 @@ export async function fillAfterReading(
       chatId: chat.id,
       requestId: `job:${jobId}`,
       role: "SYSTEM",
-      content: text === `Read ${where}.` ? `Read ${where}. No new details were found on it.` : text,
+      content: text === `Read ${where}.` ? `Read ${where}: no new details found.` : text,
     },
     update: {},
   });

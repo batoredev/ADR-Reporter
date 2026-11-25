@@ -255,7 +255,8 @@ function ChatSession({ id }: { id: string }) {
           <p className="text-sm text-muted-foreground">{data.caseNumber} · Draft</p>
           <h1 className="mt-1 text-3xl font-semibold">Report assistant</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Add documents or describe what happened. The report fills itself in; you confirm it once at the end.
+            Upload case documents or enter the case details. The report is completed from these and confirmed once
+            before submission.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -362,11 +363,14 @@ function ChatSession({ id }: { id: string }) {
               ref={historyPanel}
             >
               <p className="max-w-lg rounded-xl bg-secondary p-4 text-sm leading-relaxed">
-                Add the documents for this fictional report, or describe the case in one message, the way you would
-                write it in the notes. For example: &ldquo;R.K., 34/F. T. Amoxicillin 500 TDS from 2/11 for sore throat;
-                rash on 4/11. Amox stopped, given T. Cetirizine 10mg HS. Recovered. Not serious.&rdquo; I will fill in
-                the report and ask only for what is missing. You confirm everything once, before the report is
-                submitted.
+                Upload the case documents, or enter the case in a single message as you would in clinical notes.
+                <br />
+                <span className="text-muted-foreground">
+                  Example: R.K., 34/F. T. Amoxicillin 500 mg TDS from 02/11 for sore throat. Rash on 04/11. Amoxicillin
+                  stopped; T. Cetirizine 10 mg HS given. Recovered. Not serious.
+                </span>
+                <br />
+                Only missing details are requested. All entries are reviewed and confirmed once before submission.
               </p>
               {data.messages.map((message) => (
                 <div
@@ -402,7 +406,8 @@ function ChatSession({ id }: { id: string }) {
             <div className="space-y-4 border-t p-5">
               {data.processing ? (
                 <p className="text-sm text-muted-foreground">
-                  I will ask about anything missing once the pages have been read. You can type details while you wait.
+                  Missing details are requested once the documents have been read. Case details can be entered
+                  meanwhile.
                 </p>
               ) : data.question ? (
                 <div className="space-y-3">
@@ -435,7 +440,7 @@ function ChatSession({ id }: { id: string }) {
                         disabled={disabled}
                         onClick={() => void send("I don't know")}
                       >
-                        I don&apos;t know this detail
+                        Not known
                       </Button>
                     ) : null}
                     {data.question.field === "reactionDescription" ? (
@@ -468,8 +473,8 @@ function ChatSession({ id }: { id: string }) {
                   <p className="flex items-start gap-2 text-sm text-success">
                     <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
                     {data.completeness.ready
-                      ? "That's everything I need. Review the report once and confirm it to submit."
-                      : "I have no more questions. The report still needs the required details listed below."}
+                      ? "All required details are complete. Review and confirm the report to submit."
+                      : "No further questions. The required details listed below are still missing."}
                   </p>
                   {data.completeness.ready ? (
                     <Button asChild>

@@ -42,7 +42,7 @@ test("batch photos and multi-page PDFs fill the report directly, without duplica
   await expect(page.getByRole("heading", { name: /How is the patient now/ })).toBeVisible();
   await expect(page.locator("main")).not.toContainText(/Ollama|Gemini|Claude|paid fallback|AI model/);
   // The unclear "SOS" reading went in, marked for a look at the final confirmation.
-  await expect(page.getByText(/Please take a quick look/)).toBeVisible();
+  await expect(page.getByText(/Review required/)).toBeVisible();
   await page.screenshot({ path: "test-results/chat-desktop.png", fullPage: true });
   await page.getByRole("link", { name: "Open form", exact: true }).click();
   await expect(page.getByLabel("1. Patient initials")).toHaveValue("R.K.");

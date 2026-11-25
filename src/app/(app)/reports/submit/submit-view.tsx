@@ -113,7 +113,8 @@ export function SubmitReportView() {
                   <p className="flex gap-2 rounded-lg border border-warning/30 bg-warning-soft p-3 text-[13px] text-warning">
                     <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
                     {d.review.attention.length} automatically filled detail
-                    {d.review.attention.length === 1 ? " is" : "s are"} marked for a quick look in the report summary.
+                    {d.review.attention.length === 1 ? " requires" : "s require"} review before confirmation (see Review
+                    required).
                   </p>
                 ) : null}
                 {check.ready ? (

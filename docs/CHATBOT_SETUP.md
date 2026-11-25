@@ -95,7 +95,7 @@ the whole report once, on **Review and submit** (the declaration covers everythi
   reaction started are flagged.
 - "Not sure", "n/a", "don't know" and similar answers are recorded as not known; they are never saved as values, and an
   optional question is skipped after two answers that cannot be used. Optional questions can be skipped together.
-- Unclear readings, differing sources, held documents and similar names are listed under **Please take a quick look**
+- Unclear readings, differing sources, held documents and similar names are listed under **Review required**
   in the assistant and on the submit page. Submitting marks every automatically filled value as confirmed.
 
 ## Working flow
@@ -103,7 +103,7 @@ the whole report once, on **Review and submit** (the declaration covers everythi
 1. Start a conversation or continue an existing draft with the report assistant.
 2. Select/drop JPG, PNG and PDF files together: at most 20 files, 10 MB each, 50 MB per batch; PDFs at most 20 pages each and 100 pages per batch. Byte-identical files are deduplicated within the report.
 3. Originals are saved atomically. Every PDF page is rendered locally using PDF.js, saved independently, and queued with its real page number. A refresh resumes missing pages. Each queued page has a lease, bounded retries and a separate retry control.
-4. Details fill the shared form as they are read or answered. Source quotes, page numbers, differing values and unclear readings stay visible under **Please take a quick look**. Reporters choose medicine roles and confirm documents with different patient initials.
+4. Details fill the shared form as they are read or answered. Source quotes, page numbers, differing values and unclear readings stay visible under **Review required**. Reporters choose medicine roles and confirm documents with different patient initials.
 5. Required versions and conversation revisions prevent stale writes; message and upload identifiers prevent duplicate operations. The reporter confirms the whole report once, on **Review and submit**.
 6. The question planner asks only unanswered applicable fields. A free-text answer can propose several facts, but each needs a quote present in the answer and must use an allowed field. Explicit unavailable answers remain distinct from missing mandatory information.
 7. Continue in the form, run checks, draft a narrative, review/submit, complete institutional review and generate PDFs through the existing workflow.

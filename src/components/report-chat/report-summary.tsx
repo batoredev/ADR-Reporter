@@ -9,10 +9,10 @@ import type { ReportSummary } from "@/server/workflow/report-summary";
 const KIND_TITLES: Record<ChatNote["kind"], string> = {
   UNCLEAR: "Unclear reading",
   CONFLICT: "Sources differ",
-  HELD: "Not added: different patient?",
+  HELD: "Not added: patient initials differ",
   INVALID: "Could not be used",
   SIMILAR: "Similar medicine names",
-  INFERRED: "Filled in by the app",
+  INFERRED: "Completed automatically",
   MERGED: "Duplicates merged",
   CHANGED: "Changed by your answer",
 };
@@ -38,7 +38,7 @@ export function ReviewNotes({
       {review.attention.length ? (
         <section className="space-y-2 rounded-xl border border-warning/30 bg-warning-soft p-4">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-warning">
-            <AlertTriangle className="size-4" aria-hidden /> Please take a quick look ({review.attention.length})
+            <AlertTriangle className="size-4" aria-hidden /> Review required ({review.attention.length})
           </h2>
           <ul className="space-y-2">
             {review.attention.map((n, i) => (
@@ -55,19 +55,20 @@ export function ReviewNotes({
                     disabled={busy}
                     onClick={() => onBelongs(n.documentId!)}
                   >
-                    It belongs to this patient: add its details
+                    Confirm same patient and add details
                   </Button>
                 ) : null}
               </li>
             ))}
           </ul>
-          <p className="text-xs text-warning">Correct anything wrong in the form. Otherwise nothing else is needed.</p>
+          <p className="text-xs text-warning">Correct any errors in the form. No other action is needed.</p>
         </section>
       ) : null}
       {review.info.length ? (
         <details className="rounded-xl border bg-card p-4 text-sm">
           <summary className="flex cursor-pointer items-center gap-1.5 font-medium">
-            <Info className="size-4 text-primary" aria-hidden /> Filled in or merged by the app ({review.info.length})
+            <Info className="size-4 text-primary" aria-hidden /> Completed or merged automatically ({review.info.length}
+            )
           </summary>
           <ul className="mt-2 space-y-1.5">
             {review.info.map((n, i) => (
@@ -88,7 +89,7 @@ export function ReportSoFar({ review }: { review: ReportSummary }) {
   if (!review.sections.length)
     return (
       <div className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
-        Nothing filled in yet. Add documents or describe what happened.
+        No details recorded yet. Upload documents or enter the case details.
       </div>
     );
   return (
