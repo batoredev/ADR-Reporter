@@ -327,3 +327,77 @@ describe("checks added after the reporter's live tests (1 November 2026)", () =>
     expect(state.notes.map((n) => `${n.key}${n.message}`)).toEqual(["a2", "b1"]);
   });
 });
+
+describe("fewer, clearer questions (25 November 2026)", () => {
+  it("never shows example text in a question", () => {
+    const values = form({
+      patientInitials: "",
+      ageValue: "",
+      gender: "",
+      reactionTerms: "",
+      reactionStartDate: { value: "", approx: false },
+      suspectedMedicines: [],
+    });
+    const state = chatState({});
+    const seen: string[] = [];
+    for (let q = nextQuestion(values, state, []); q && seen.length < 30; q = nextQuestion(values, state, [])) {
+      seen.push(q.text);
+      expect(q.text).not.toMatch(/for example|e\.g\.|example:/i);
+      deferQuestion(values, state, q);
+    }
+    expect(seen.length).toBeGreaterThan(2);
+  });
+
+  it("does not ask the parts of a combined question again after 'not known'", () => {
+    const values = form({ reactionTerms: "", reactionStartDate: { value: "", approx: false } });
+    const state = chatState({});
+    const first = nextQuestion(values, state, []);
+    expect(first?.field).toBe("reaction");
+    deferQuestion(values, state, first!);
+    const next = nextQuestion(values, state, []);
+    expect(["reactionTerms", "reactionStartDate"]).not.toContain(next?.field);
+  });
+
+  it("asks which medicine is suspected only when there is a real choice", () => {
+    // A medicine recorded as suspected because it was the only one, then a second one turns up.
+    const values = form();
+    const only = values.suspectedMedicines[0];
+    const key = entityKey("medicine", only.name);
+    const state = chatState({
+      inferredSuspect: key,
+      entities: { [key]: { rowId: only.id, list: "suspectedMedicines" } },
+    });
+    expect(nextQuestion(values, state, [])?.kind).not.toBe("suspect");
+    const found = fact({
+      id: "doc",
+      entity: "medicine",
+      entityKey: entityKey("medicine", "Cetirizine 10 mg tablet"),
+      entityName: "Cetirizine 10 mg tablet",
+      field: "name",
+      value: "Cetirizine 10 mg tablet",
+    });
+    const q = nextQuestion(values, state, [found]);
+    expect(q?.kind).toBe("suspect");
+    expect(Object.keys(q!.options!)).toEqual([only.name, "Cetirizine 10 mg tablet"]);
+  });
+
+  it("states what the prescription says when asking a medicine's missing details", () => {
+    const values = form();
+    const m = values.suspectedMedicines[0];
+    Object.assign(m, {
+      startDate: { value: "", approx: false },
+      stopDate: { value: "", approx: false },
+      ongoing: false,
+    });
+    const state = chatState({ skipOptional: true });
+    const hints = [{ key: entityKey("medicine", m.name), name: m.name, prescribed: "2026-10-22", duration: "2 weeks" }];
+    let q = nextQuestion(values, state, [], profile, hints);
+    while (q && q.field !== "details") {
+      deferQuestion(values, state, q);
+      q = nextQuestion(values, state, [], profile, hints);
+    }
+    expect(q?.text).toBe(
+      "Amoxicillin (prescribed 22 October 2026 for 2 weeks): dose, route, how often, start date, stop date and what it was for?",
+    );
+  });
+});

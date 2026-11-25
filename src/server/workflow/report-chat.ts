@@ -29,7 +29,13 @@ import {
   strengthOf,
 } from "@/lib/domain/medicines";
 import { todayInAppZone } from "@/lib/format";
-import { parseIndianDate, parsePatientLine, resolveRelativeDate, type DateAnchors } from "@/lib/domain/clinical-text";
+import {
+  onlyPatientWords,
+  parseIndianDate,
+  parsePatientLine,
+  resolveRelativeDate,
+  type DateAnchors,
+} from "@/lib/domain/clinical-text";
 import {
   ATTENTION_KINDS,
   chatState,
@@ -68,6 +74,7 @@ import {
   type ChatNote,
   type ChatQuestion,
   type ChatState,
+  type MedicineHint,
   type MedicineRole,
 } from "@/lib/domain/report-chat";
 import { db } from "@/server/db";
@@ -156,10 +163,11 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
       if (!med.name.value || !composition) return;
       const brand = medicineKey(med.name.value),
         generic = medicineKey(composition);
-      if (brand && generic && brand !== generic) {
-        aliases.set(brand, generic);
-        if (!packNames.has(generic)) packNames.set(generic, { brand: med.name.value.trim(), composition });
-      }
+      if (!brand || !generic) return;
+      if (brand !== generic) aliases.set(brand, generic);
+      // Named "Brand (composition)" whether or not the brand is a listed one, unless the name already says it.
+      const sameText = composition.toLowerCase().includes(med.name.value.trim().toLowerCase());
+      if (!packNames.has(generic) && !sameText) packNames.set(generic, { brand: med.name.value.trim(), composition });
     });
 
   // Known medicines, so differently written names of one drug share a key.
@@ -202,6 +210,10 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
     }
   }
   const facts: ChatFact[] = [];
+  // Prescription date and course per medicine, so questions can say what is already known.
+  const hints: MedicineHint[] = [];
+  // Dosage forms each medicine was seen in ("syrup" on the prescription, "tablet" on the strip photo).
+  const formsByKey = new Map<string, Map<string, string>>();
   const documentInitials: Record<string, string | null> = {};
   // Dates written on the documents, for answers such as "2 days after the prescription".
   const prescriptionDates: string[] = [];
@@ -292,6 +304,22 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
       const key = resolveMedicine(name);
       readFrom.set(run.documentId, new Set([...(readFrom.get(run.documentId) ?? []), key]));
       for (const [field, reading] of Object.entries(med)) add("medicine", name, field, reading, field, index, key);
+      const form = dosageForm([med.name.value, compositionOf(output, index)].filter(Boolean).join(" "));
+      if (form) {
+        const seen = formsByKey.get(key) ?? new Map<string, string>();
+        if (!seen.has(form)) seen.set(form, job.document.originalName);
+        formsByKey.set(key, seen);
+      }
+      const prescribed =
+        written && /^\d{4}-\d{2}-\d{2}$/.test(written) && !output.documentDate?.uncertain ? written : undefined;
+      const duration = med.duration.value?.trim() || undefined;
+      if (prescribed || duration) {
+        const hint = hints.find((h) => h.key === key);
+        if (hint) {
+          hint.prescribed ??= prescribed;
+          hint.duration ??= duration;
+        } else hints.push({ key, name, prescribed, duration });
+      }
     });
     output.investigations.forEach((inv, index) => {
       const name = inv.testName.value ?? "";
@@ -322,7 +350,8 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
   // A nameless pack photo belongs to the one medicine on the photo next to it (the other side of the pack), or
   // to the only medicine in the report. Otherwise it is listed for the reporter instead of guessed.
   const documentOrder = [...new Set(jobs.map((j) => j.documentId))];
-  const unmatchedPacks: { documentId: string; documentName: string; details: string }[] = [];
+  const unmatchedPacks: { documentId: string; documentName: string; details: string; reason?: string }[] = [];
+  const packCode = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, "");
   for (const o of orphans) {
     const at = documentOrder.indexOf(o.documentId);
     const beside = [
@@ -333,11 +362,30 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
       ),
     ];
     const everywhere = [...namesByKey.keys()];
-    const target = beside.length === 1 ? beside[0] : everywhere.length === 1 ? everywhere[0] : null;
+    let target = beside.length === 1 ? beside[0] : everywhere.length === 1 ? everywhere[0] : null;
+    // A photo of another pack is not the back of this one: if the medicine already has a different batch or
+    // expiry from its own pack photo, these details belong to something else.
+    let reason: string | undefined;
+    if (target) {
+      const clash = facts.find(
+        (f) =>
+          f.entityKey === target &&
+          (f.field === "batchLot" || f.field === "expiryDate") &&
+          f.documentId !== o.documentId &&
+          o.med[f.field].value &&
+          packCode(o.med[f.field].value!) !== packCode(f.value),
+      );
+      if (clash) {
+        const name = [...(namesByKey.get(target) ?? [])][0] ?? "the medicine beside it";
+        reason = `${name} already has ${clash.field === "batchLot" ? "batch" : "expiry"} ${clash.value} from ${clash.documentName ?? "another photo"}, so this is a different pack`;
+        target = null;
+      }
+    }
     if (!target) {
       unmatchedPacks.push({
         documentId: o.documentId,
         documentName: o.documentName,
+        reason,
         details: [
           o.med.batchLot.value ? `batch ${o.med.batchLot.value}` : "",
           o.med.expiryDate.value ? `expiry ${o.med.expiryDate.value}` : "",
@@ -400,9 +448,27 @@ async function loadChatContext(user: CurrentUser, caseId: string, client: Client
     aliases,
     packNames,
     unmatchedPacks,
+    hints,
+    formsByKey,
   };
 }
 type ChatContext = Awaited<ReturnType<typeof loadChatContext>>;
+
+/** The dosage form a name or composition states, in plain words, or null when none is written. */
+export function dosageForm(text: string): string | null {
+  const t = text.toLowerCase();
+  const forms: [string, RegExp][] = [
+    ["syrup", /\b(?:syp|syr|syrup|suspension|susp|elixir|oral solution|oral drops)\b/],
+    ["nasal spray", /\bnasal\b|\bspray\b/],
+    ["eye or ear drops", /\b(?:eye|ear|ophthalmic|otic)\b.*\bdrops?\b|\bdrops?\b/],
+    ["inhaler", /\b(?:inhaler|rotacaps?|respules?|mdi|dpi|nebul\w*)\b/],
+    ["injection", /\b(?:inj|injection|vial|amp|ampoule|infusion)\b/],
+    ["cream or ointment", /\b(?:cream|ointment|oint|gel|lotion)\b/],
+    ["capsule", /\b(?:cap|caps|capsules?)\b/],
+    ["tablet", /\b(?:tab|tabs|tablets?|dispersible|chewable)\b/],
+  ];
+  return forms.find(([, pattern]) => pattern.test(t))?.[0] ?? null;
+}
 
 export interface AutoFillChange {
   label: string;
@@ -555,8 +621,32 @@ async function applyFacts(
       state.roles[f.entityKey] = "TREATMENT";
   // Once the suspected medicine is known, every other medicine is placed without a question:
   // as treatment when it was given for the reaction, otherwise as another medicine the patient was taking.
+  // A medicine taken as suspected only because it was the only one does not decide the others.
+  const inferred = state.inferredSuspect;
+  const inferredRowId = inferred ? state.entities[inferred]?.rowId : undefined;
   const suspectKnown =
-    values.suspectedMedicines.some((m) => m.name.trim()) || Object.values(state.roles).includes("SUSPECTED");
+    values.suspectedMedicines.some((m) => m.name.trim() && (!inferredRowId || m.id !== inferredRowId)) ||
+    Object.entries(state.roles).some(([key, role]) => role === "SUSPECTED" && key !== inferred);
+  const reading = data.jobs.some((j) => ["WAITING_PAGES", "QUEUED", "RUNNING"].includes(j.status));
+  if (!suspectKnown && !inferred && !reading && !values.suspectedMedicines.some((m) => m.name.trim())) {
+    // With a single medicine there is nothing to choose: it is the suspected one. Asking "which medicine caused
+    // it?" with one answer wastes the reporter's time; the choice is shown for the final confirmation instead.
+    const unplaced = unplacedMedicines(values, state, open);
+    if (unplaced.length === 1) {
+      const only = unplaced[0];
+      state.roles[only.key] = "SUSPECTED";
+      state.inferredSuspect = only.key;
+      result.inferred.push({ label: "Suspected medicine", to: only.name });
+      setNote(state, {
+        key: `placed:${only.key}`,
+        kind: "INFERRED",
+        label: only.name,
+        value: "",
+        message:
+          "The only medicine in this report, so it was recorded as the suspected medicine. Change it in the form if that is not right.",
+      });
+    }
+  }
   if (suspectKnown)
     for (const m of unplacedMedicines(values, state, open)) {
       state.roles[m.key] = "CONCOMITANT";
@@ -775,7 +865,7 @@ async function applyFacts(
       label: pack.documentName,
       value: "",
       documentId: pack.documentId,
-      message: `This pack photo shows ${pack.details || "pack details"} but no medicine name, and could not be matched to one medicine. Add these details to the right medicine in the form.`,
+      message: `This pack photo shows ${pack.details || "pack details"} but no medicine name, and could not be matched to one medicine${pack.reason ? `: ${pack.reason}` : ""}. Add these details to the right medicine in the form.`,
     });
 
   // An age of 2 or more with no unit is in years (younger ages are asked).
@@ -856,6 +946,25 @@ async function applyFacts(
         value: "",
         message: `The same medicine was written with different strengths (${strengths.join(", ")}). Check the name and dose in the report.`,
       });
+  }
+  // One medicine seen in two dosage forms (syrup on the prescription, tablets on the strip photo): the pack photo may
+  // be of a different product, so its batch and maker need a look.
+  const mixedForms = [...data.formsByKey].filter(([, forms]) => forms.size > 1);
+  state.notes = state.notes.filter(
+    (n) => !n.key.startsWith("form:") || mixedForms.some(([k]) => `form:${k}` === n.key),
+  );
+  for (const [key, forms] of mixedForms) {
+    const first = [...(data.namesByKey.get(key) ?? [])][0] ?? "";
+    const row = rowFor(values, state, { entity: "medicine", entityKey: key, entityName: first });
+    if (!row) continue;
+    const label = rowName(values, row, first);
+    setNote(state, {
+      key: `form:${key}`,
+      kind: "CONFLICT",
+      label,
+      value: "",
+      message: `${label} appears as ${[...forms].map(([form, doc]) => `${form} (${doc})`).join(" and ")}. Check which form the patient took; details from the other form's pack may belong to a different product.`,
+    });
   }
   for (const [a, b] of data.similar)
     setNote(state, {
@@ -976,7 +1085,7 @@ export async function getReportChat(user: CurrentUser, caseId: string) {
   const { c, chat, state, values, facts, jobs, reporter, documentInitials } = data;
   const processing = jobs.some((j) => ["WAITING_PAGES", "QUEUED", "RUNNING"].includes(j.status));
   const summary = await buildReportSummary(caseId, values, state);
-  const question = processing ? null : nextQuestion(values, state, facts, reporter);
+  const question = processing ? null : nextQuestion(values, state, facts, reporter, data.hints);
   const documents = [
     ...new Map(
       jobs.map((j) => [
@@ -1045,8 +1154,9 @@ function constrainedAnswer(question: ChatQuestion | null, content: string, ancho
     approximate: false,
     uncertain: false,
   });
-  // "R.K., 34, F": a short patient line is read without the AI.
-  if (question.field === "patient" && value.length <= 60) {
+  // "R.K., 34, F": a short patient line is read without the AI, but only when it says nothing else
+  // ("A.K. 24 M, nose bleed after flutifer" goes to the full reading so the reaction and medicine are kept).
+  if (question.field === "patient" && value.length <= 60 && onlyPatientWords(value)) {
     const p = parsePatientLine(value);
     if (p.initials || p.age) {
       const out: Answer[] = [];
@@ -1063,7 +1173,13 @@ function constrainedAnswer(question: ChatQuestion | null, content: string, ancho
     const m = value.match(
       /^(.{2,80}?)(?:\s*,\s*|\s+(?=(?:on|from|since|started|starting|yesterday|today|last|day before|\d+\s*(?:days?|weeks?)|an?\s+(?:day|week))\b))(.+?)\.?$/i,
     );
-    if (m && !/\d/.test(m[1])) {
+    // "Nose bleed after flutifer, on 24/10" names a medicine and its link to the reaction: the full reading keeps both.
+    if (
+      m &&
+      !/\d/.test(m[1]) &&
+      !/\b(?:after|due to|following|because|caused|taking|took|using|used|from|with|post)\b/i.test(m[1]) &&
+      !findMedicineMentions(m[1]).length
+    ) {
       const dateText = m[2].replace(/^start(?:ed|ing)\s+(?:on\s+)?/i, "");
       const exact = parseIndianDate(dateText);
       const counted = exact ? null : anchors ? resolveRelativeDate(dateText, anchors) : null;
@@ -1255,7 +1371,9 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
     });
   });
   const processing = data.jobs.some((j) => ["WAITING_PAGES", "QUEUED", "RUNNING"].includes(j.status));
-  const currentQuestion = processing ? null : nextQuestion(data.values, data.state, data.facts, data.reporter);
+  const currentQuestion = processing
+    ? null
+    : nextQuestion(data.values, data.state, data.facts, data.reporter, data.hints);
   const question = currentQuestion && currentQuestion.key === body.questionKey ? currentQuestion : null;
   const unknown = Boolean(question && isUnknownAnswer(body.content));
   let updates: Answer[] = [];
@@ -1477,6 +1595,21 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
       const before = JSON.stringify(values);
       const setRole = (key: string, name: string, next: MedicineRole) => {
         const before = state.roles[key];
+        // The reporter's own word replaces a suspect taken only because it was the only medicine.
+        const inferred = state.inferredSuspect;
+        if (inferred && (next === "SUSPECTED" || key === inferred)) {
+          delete state.inferredSuspect;
+          state.notes = state.notes.filter((n) => n.key !== `placed:${inferred}`);
+          if (inferred !== key && next === "SUSPECTED") {
+            const location = rowFor(values, state, { entity: "medicine", entityKey: inferred, entityName: "" });
+            const previous = rowName(values, location, "");
+            if (previous) {
+              state.roles[inferred] = "CONCOMITANT";
+              moveMedicine(values, state, inferred, previous, "CONCOMITANT");
+              noted.push({ name: previous, role: "CONCOMITANT" });
+            }
+          }
+        }
         state.roles[key] = next;
         moveMedicine(values, state, key, name, next);
         const location = rowFor(values, state, { entity: "medicine", entityKey: key, entityName: name });
@@ -1573,7 +1706,7 @@ export async function sendReportChatMessage(user: CurrentUser, caseId: string, i
       !pending &&
       !after.values.reactionDescription.trim() &&
       after.values.reactionTerms.trim() &&
-      !nextQuestion(after.values, after.state, after.facts, after.reporter)
+      !nextQuestion(after.values, after.state, after.facts, after.reporter, after.hints)
     ) {
       await writeDescription(user, caseId);
     }

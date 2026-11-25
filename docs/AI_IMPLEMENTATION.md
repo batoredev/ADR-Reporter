@@ -142,6 +142,23 @@ and refuses fixture mode. Passing the supplied expectations is evidence about th
 perfect extraction on arbitrary documents. Source quotes and page references are model-produced and still require
 comparison with the original. The image benchmark has now passed with live Ollama credentials as recorded above. PDF coverage is still pending.
 
+### Report assistant readings of real photos
+
+`samples/chat-extraction-benchmark.json` holds hand-transcribed expectations for the reporter's own test photos
+(handwritten Flutifer prescription and pack, a paediatric prescription with four syrups, Meftal-P strip, Moxikind
+front and back, a loose batch/expiry photo, a US practice script). The photos stay outside the repository:
+
+```bash
+npm run ai:evaluate-chat -- --dir="C:/Users/<you>/Desktop/adr-samples"            # all photos
+npm run ai:evaluate-chat -- --dir="..." --only=paediatric-rx-four-syrups --runs=3 # repeat one photo
+```
+
+It uses the same instructions and schema as the assistant and saves every reading under
+`test-results/chat-extraction/`. On 25 November 2026 it could not run: the Ollama Cloud account returned 402 (usage
+allowance used up) for every model, and no Gemini key is set locally. How the assistant connects readings and what
+it asks is covered without the AI by `tests/integration/report-chat-samples.test.ts`, which gives each photo the
+reading a careful reader makes of it.
+
 ## Practical limits
 
 Narrative numeric/date checks are heuristics and do not prove semantic correctness; matching numbers can still be

@@ -26,6 +26,7 @@
     "prebuild": "node scripts/prepare-site.mjs",
     "ai:check": "tsx --conditions=react-server scripts/check-ai.ts",
     "ai:evaluate": "tsx --conditions=react-server scripts/evaluate-extractor.ts",
+    "ai:evaluate-chat": "tsx --conditions=react-server scripts/evaluate-chat-extraction.ts",
     "chatbot:prepare": "node scripts/prepare-chatbot-deploy.mjs",
     "ai:chat-check": "tsx --conditions=react-server scripts/check-chat-provider.ts"
   },

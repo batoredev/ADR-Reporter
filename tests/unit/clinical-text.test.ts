@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseIndianDate, parsePatientLine, resolveRelativeDate } from "@/lib/domain/clinical-text";
+import { onlyPatientWords, parseIndianDate, parsePatientLine, resolveRelativeDate } from "@/lib/domain/clinical-text";
 
 describe("dates as written in Indian hospitals", () => {
   const today = new Date("2026-11-24");
@@ -92,5 +92,19 @@ describe("dates written in words", () => {
       resolveRelativeDate("2 days after the prescription", { ...anchors, prescriptions: ["2026-11-20", "2026-11-22"] }),
     ).toBeNull();
     expect(resolveRelativeDate("2 days after the prescription", { today: "2026-11-25" })).toBeNull();
+  });
+});
+
+describe("a patient line that says nothing else", () => {
+  it("is read directly only when it holds patient details alone", () => {
+    for (const line of ["R.K., 34, female", "RK 34/F", "A.K, 24 yrs, M, 54 kg", "8 months, male", "Pt A.K. 24 M"])
+      expect(onlyPatientWords(line), line).toBe(true);
+    for (const line of [
+      "A.K. 24 M, nose bleed after flutifer",
+      "Ravi Kumar 34 M",
+      "R.K. 34 F rash",
+      "34 F on amoxicillin",
+    ])
+      expect(onlyPatientWords(line), line).toBe(false);
   });
 });

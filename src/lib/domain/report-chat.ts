@@ -183,6 +183,11 @@ export interface ChatState {
   attempts: Record<string, number>;
   /** The reporter chose to skip optional questions. */
   skipOptional: boolean;
+  /**
+   * A medicine recorded as suspected because it was the only medicine in the report, not because the reporter
+   * said so. If more medicines appear later, the reporter is asked which one is suspected instead.
+   */
+  inferredSuspect?: string;
 }
 const emptyState = (): ChatState => ({
   decisions: {},
@@ -194,6 +199,16 @@ const emptyState = (): ChatState => ({
   attempts: {},
   skipOptional: false,
 });
+
+/** What the documents say about a medicine that the form has no field for, used to ask with context. */
+export interface MedicineHint {
+  key: string;
+  name: string;
+  /** The date written on the prescription that lists the medicine (ISO). */
+  prescribed?: string;
+  /** The course written on the prescription ("5 days", "2 weeks"). */
+  duration?: string;
+}
 export function chatState(raw: unknown): ChatState {
   // Each part falls back on its own, so one unreadable part never wipes the rest of the conversation state.
   const parsed = z
@@ -230,6 +245,7 @@ export function chatState(raw: unknown): ChatState {
         .default([]),
       attempts: z.record(z.string(), z.number()).catch({}).default({}),
       skipOptional: z.boolean().catch(false).default(false),
+      inferredSuspect: z.string().optional().catch(undefined),
     })
     .safeParse(raw ?? {});
   return parsed.success ? parsed.data : emptyState();
@@ -843,6 +859,7 @@ export function nextQuestion(
   state: ChatState,
   facts: ChatFact[],
   _profile?: ReporterProfile,
+  hints: MedicineHint[] = [],
 ): ChatQuestion | null {
   const questions: ChatQuestion[] = [];
   const unknown = new Set(values.unknownFields);
@@ -877,9 +894,9 @@ export function nextQuestion(
         "case",
         "",
         "patient",
-        `About the patient: ${listOf(
+        `Patient's ${listOf(
           patientMissing.map((f) => ({ patientInitials: "initials", ageValue: "age", gender: "gender" })[f]!),
-        )}${empty("weightKg") ? " (and weight, if known)" : ""}? For example: R.K., 34, female.`,
+        )}${empty("weightKg") ? " (and weight, if known)" : ""}?`,
         [...patientMissing, ...(empty("weightKg") ? ["weightKg"] : [])],
         { required: true },
       ),
@@ -911,7 +928,7 @@ export function nextQuestion(
         "case",
         "",
         "reaction",
-        "What reaction did the patient have, and when did it start? For example: itchy rash on 14/10/2026.",
+        "What reaction did the patient have, and when did it start?",
         ["reactionTerms", "reactionStartDate"],
         { required: true },
       ),
@@ -933,26 +950,35 @@ export function nextQuestion(
       );
   }
 
-  // 3. The suspected medicine: one question, with the medicines already named as buttons.
+  // 3. The suspected medicine: one question, with the medicines already named as buttons. A single medicine is
+  // recorded as suspected without asking (see applyFacts); the question returns only when there is a real choice,
+  // including when more medicines turn up after one was taken as suspected for being the only one.
   const named = <T extends { name: string }>(rows: T[]) => rows.filter((r) => r.name.trim());
-  if (!named(values.suspectedMedicines).length) {
+  const open = unplacedMedicines(values, state, facts).map((m) => m.name);
+  const inferredRow = state.inferredSuspect
+    ? rowFor(values, state, { entity: "medicine", entityKey: state.inferredSuspect, entityName: "" })
+    : null;
+  const inferredName =
+    inferredRow && inferredRow.list === "suspectedMedicines" ? values.suspectedMedicines[inferredRow.index].name : "";
+  const statedSuspects = named(values.suspectedMedicines).filter((m) => m.name !== inferredName);
+  if (!statedSuspects.length && (!inferredName || open.length)) {
     // Medicines whose role is still open; if none, the other medicines already in the report.
-    const open = unplacedMedicines(values, state, facts).map((m) => m.name);
-    const candidates = open.length
-      ? open
-      : named(values.concomitantProducts)
-          .filter((r) => !r.usedToTreatReaction)
-          .map((r) => r.name);
+    const candidates = [
+      ...(inferredName ? [inferredName] : []),
+      ...(open.length
+        ? open
+        : named(values.concomitantProducts)
+            .filter((r) => !r.usedToTreatReaction)
+            .map((r) => r.name)),
+    ];
     questions.push(
       ask(
         "medicine",
         "",
         "name",
         candidates.length === 1
-          ? `Do you suspect ${candidates[0]} caused the reaction? If not, name the medicine you suspect.`
-          : candidates.length
-            ? "Which medicine do you suspect caused the reaction?"
-            : "Which medicine do you suspect caused the reaction? Give its name and strength.",
+          ? `Is ${candidates[0]} the medicine suspected of causing the reaction?`
+          : "Which medicine is suspected of causing the reaction?",
         {
           kind: "suspect",
           required: true,
@@ -996,15 +1022,21 @@ export function nextQuestion(
     const missing = ["dose", "route", "frequency", "startDate", "stopDate", "indication"].filter(
       (field) => !filledIn(m, field) && !m.unknownFields.includes(field) && !(field === "stopDate" && m.ongoing),
     );
+    // What the prescription already says, so the reporter can answer "same day" or "finished the course".
+    const hint = hints.find((h) => h.key === entityKey("medicine", m.name) || sameMedicine(h.name, m.name));
+    const context = [
+      hint?.prescribed && missing.includes("startDate") ? `prescribed ${formatForDisplay(hint.prescribed)}` : "",
+      hint?.duration && (missing.includes("stopDate") || missing.includes("startDate")) ? `for ${hint.duration}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     if (missing.length)
       questions.push(
         group(
           "medicine",
           m.name,
           "details",
-          `For ${m.name}: ${listOf(missing.map((f) => detailWords[f]))}? Give what you know${
-            missing.includes("stopDate") ? ', or say "still taking"' : ""
-          }.`,
+          `${m.name}${context ? ` (${context})` : ""}: ${listOf(missing.map((f) => detailWords[f]))}?`,
           missing,
         ),
       );
@@ -1092,6 +1124,12 @@ export function deferQuestion(values: CaseFormValues, state: ChatState, question
     return;
   }
   const fields = question.kind === "group" ? (question.fields ?? []) : [question.field];
+  // "Not known" to a combined question answers each of its parts: they are not asked again one by one.
+  if (question.kind === "group")
+    for (const field of fields) {
+      const key = `${question.entityKey}.${field}`;
+      if (!state.deferred.includes(key)) state.deferred.push(key);
+    }
   if (question.entity === "case") {
     for (const field of fields)
       if ((CASE_UNKNOWABLE as readonly string[]).includes(field) && !values.unknownFields.includes(field))

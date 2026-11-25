@@ -95,6 +95,25 @@ export function parsePatientLine(text: string): PatientLine {
   return out;
 }
 
+/**
+ * True when a short line holds only patient details (initials, age and unit, gender, weight), so the fixed
+ * reader above loses nothing. "A.K. 24 M, nose bleed after flutifer" or a full name returns false.
+ */
+export function onlyPatientWords(text: string): boolean {
+  const rest = ` ${text} `
+    .replace(/\b[A-Za-z](?:\s?\.\s?[A-Za-z]){1,2}\.?(?=[\s,;:/-])/g, " ")
+    .replace(/\b[A-Z]{2,3}\b/g, " ")
+    .replace(/\d+(?:\.\d+)?/g, " ")
+    .toLowerCase()
+    .replace(
+      /\b(?:pt|patient|aged?|old|years?|yrs?|yr|y|y\/o|yo|months?|mos?|weeks?|wks?|days?|kgs?|kilos?|weighs?|weight|m|f|male|female|man|woman|boy|girl|lady|gentleman|mr|mrs|ms|miss|other|and)\b/g,
+      " ",
+    )
+    .replace(/[^a-z]+/g, " ")
+    .trim();
+  return rest === "";
+}
+
 // ---------------------------------------------------------------------------
 // Dates written relative to today or to another event: "yesterday", "3 days
 // ago", "since 2 days", "last Monday", "2 days after the prescription", "on day

@@ -102,7 +102,12 @@ describe("misspelt and misread dosage forms", () => {
 
   it("treats a misspelt form as the same medicine and corrects only the form words in the name", () => {
     expect(sameMedicine("flutifer nassal spary", "Flutifer Nasal spray")).toBe(true);
-    expect(medicineKey("Flutifer Nanal spry")).toBe("flutifer");
+    // Flutifer is a fluticasone furoate nasal spray, so its brand, composition and misreadings are one medicine.
+    expect(medicineKey("Flutifer Nanal spry")).toBe("fluticasone");
+    expect(sameMedicine("Flutifer", "Fluticasone Furoate Nasal Spray IP 27.5 mcg")).toBe(true);
+    // "Moxikind CV" is amoxicillin with clavulanate, as its pack's composition says, not clavulanate alone.
+    expect(medicineKey("Moxikind CV 1 gm")).toBe(medicineKey("Amoxycillin & Potassium Clavulanate Tablets IP"));
+    expect(medicineKey("Syp. Meftal-P (100/5)")).toBe(medicineKey("Mefenamic Acid Dispersible Tablets"));
     expect(tidyMedicineName("flutifer nassal spary")).toBe("flutifer nasal spray");
     expect(tidyMedicineName("Moxifloxacin eye drps")).toBe("Moxifloxacin eye drops");
     expect(tidyMedicineName("Amoxicillin 500 mg capsule")).toBe("Amoxicillin 500 mg capsule");

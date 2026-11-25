@@ -215,7 +215,8 @@ export async function buildReportSummary(
   // Notes about documents and medicine pairs are not tied to one field.
   const general = state.notes.filter(
     (n) =>
-      !rows.has(n.key) && (["HELD", "SIMILAR", "MERGED"].includes(n.kind) || /^(?:strength|placed|pack):/.test(n.key)),
+      !rows.has(n.key) &&
+      (["HELD", "SIMILAR", "MERGED"].includes(n.kind) || /^(?:strength|placed|pack|form):/.test(n.key)),
   );
   const current = [...used, ...general];
   return {

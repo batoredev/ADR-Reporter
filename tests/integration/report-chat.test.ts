@@ -722,10 +722,11 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     await processChatJob(id, user);
     vi.restoreAllMocks();
     let view = await getReportChat(user, id);
+    // The only medicine is the suspected one: no "which medicine caused it?" with a single answer.
+    expect(lastReply(view)).toMatch(/Suspected medicine: Flutifer Nasal spray/);
+    expect(view.summary.info.some((n) => /only medicine in this report/.test(n.message))).toBe(true);
     view = await giveReaction(user, id, view);
-    // The misread "Nanal spry" is offered under its corrected name.
-    expect(view.question?.options).toEqual({ "Flutifer Nasal spray": "Yes, Flutifer Nasal spray" });
-    view = await say(user, id, view, "Flutifer Nasal spray");
+    expect(view.question?.kind).not.toBe("suspect");
     const c = (await loadCase(user, id)).c;
     expect([c.patientInitials, c.ageValue, c.gender, c.weightKg]).toEqual(["A.K.", 24, "MALE", 54]);
     const m = c.suspectedMedicines[0];
@@ -1032,10 +1033,9 @@ describe.skipIf(!hasTestDb)("report assistant: automatic filling with one final 
     await processChatJob(id, user);
     vi.restoreAllMocks();
     let view = await getReportChat(user, id);
-    // One medicine offered, not two.
-    expect(view.question?.kind).toBe("suspect");
-    expect(Object.keys(view.question!.options!)).toEqual(["Flutifer"]);
-    view = await say(user, id, view, "Flutifer");
+    // Front and back are one medicine, and with one medicine there is nothing to ask: it is the suspected one.
+    expect(view.question?.kind).not.toBe("suspect");
+    expect((await loadCase(user, id)).c.suspectedMedicines.map((m) => m.name)).toHaveLength(1);
     // Typed later under its brand, it is still the same medicine.
     mockChat([
       {

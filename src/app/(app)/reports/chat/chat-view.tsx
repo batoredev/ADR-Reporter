@@ -253,10 +253,7 @@ function ChatSession({ id }: { id: string }) {
         <div>
           <p className="text-sm text-muted-foreground">{data.caseNumber} · Draft</p>
           <h1 className="mt-1 text-3xl font-semibold">Report assistant</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Upload case documents or enter the case details. The report is completed from these and confirmed once
-            before submission.
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">You confirm the completed report once before submitting.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
@@ -362,14 +359,7 @@ function ChatSession({ id }: { id: string }) {
               ref={historyPanel}
             >
               <p className="max-w-lg rounded-xl bg-secondary p-4 text-sm leading-relaxed">
-                Upload the case documents, or enter the case in a single message as you would in clinical notes.
-                <br />
-                <span className="text-muted-foreground">
-                  Example: R.K., 34/F. T. Amoxicillin 500 mg TDS from 02/11 for sore throat. Rash on 04/11. Amoxicillin
-                  stopped; T. Cetirizine 10 mg HS given. Recovered. Not serious.
-                </span>
-                <br />
-                Only missing details are requested. All entries are reviewed and confirmed once before submission.
+                Add the documents, or describe the case in your own words.
               </p>
               {data.messages.map((message) => (
                 <div
@@ -499,7 +489,7 @@ function ChatSession({ id }: { id: string }) {
                   maxLength={4000}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="Enter the details you know…"
+                  placeholder="Type anything about the case…"
                   disabled={disabled}
                 />
                 <Button type="submit" disabled={disabled || !text.trim()}>

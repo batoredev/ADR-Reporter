@@ -1,0 +1,151 @@
+{
+  "about": "Expected readings for the reporter-supplied test photos, transcribed by hand from each image. The images stay outside the repository; pass their folder with --dir. Patient names are never recorded here, only initials.",
+  "cases": [
+    {
+      "id": "flutifer-handwritten-rx",
+      "file": "flutifer_rx.jpeg",
+      "checks": {
+        "documentType": "PRESCRIPTION",
+        "patient.initials.value": "A.K.",
+        "patient.age.value": "24",
+        "patient.gender.value": "MALE",
+        "patient.weightKg.value": "54",
+        "documentDate.value": "2026-10-22",
+        "reaction.terms.value": null,
+        "medications.length": 1
+      },
+      "medicines": [
+        {
+          "name": "flutifer.*nasal\\s*spray",
+          "checks": { "startDate.value": null, "stopDate.value": null, "batchLot.value": null },
+          "patterns": { "frequency.value": "^0-0-1$", "dose.value": "2\\s*sprays?", "duration.value": "2\\s*weeks?" }
+        }
+      ]
+    },
+    {
+      "id": "flutifer-pack-back",
+      "file": "WhatsApp Image 2026-10-27 at 00.22.43.jpeg",
+      "checks": { "documentType": "MEDICINE_PACK", "patient.initials.value": null, "medications.length": 1 },
+      "medicines": [
+        {
+          "name": "flutifer",
+          "checks": { "expiryDate.value": "2027-10" },
+          "patterns": { "batchLot.value": "^[HN]ND0361A$", "manufacturer.value": "sava\\s+healthcare" }
+        }
+      ]
+    },
+    {
+      "id": "paediatric-rx-four-syrups",
+      "file": "WhatsApp Image 2026-11-25 at 17.52.29.jpeg",
+      "checks": {
+        "documentType": "PRESCRIPTION",
+        "patient.initials.value": "A.",
+        "patient.age.value": "4",
+        "patient.ageUnit.value": "YEARS",
+        "patient.gender.value": "FEMALE",
+        "patient.weightKg.value": "13.25",
+        "documentDate.value": "2022-09-20",
+        "reaction.terms.value": null,
+        "medications.length": 4
+      },
+      "medicines": [
+        {
+          "name": "calpol",
+          "checks": { "startDate.value": null, "stopDate.value": null },
+          "patterns": {
+            "dose.value": "^4\\s*ml$",
+            "frequency.value": "q\\s*6\\s*h",
+            "duration.value": "3",
+            "indication.value": "urti"
+          }
+        },
+        {
+          "name": "delcon",
+          "patterns": {
+            "dose.value": "^3\\s*ml$",
+            "frequency.value": "^tds$",
+            "duration.value": "5",
+            "indication.value": "urti"
+          }
+        },
+        {
+          "name": "levolin",
+          "patterns": {
+            "dose.value": "^3\\s*ml$",
+            "frequency.value": "^tds$",
+            "duration.value": "5",
+            "indication.value": "urti"
+          }
+        },
+        {
+          "name": "meftal",
+          "patterns": { "dose.value": "^3\\s*ml$", "frequency.value": "^sos$", "indication.value": "urti" }
+        }
+      ]
+    },
+    {
+      "id": "meftal-p-strip",
+      "file": "WhatsApp Image 2026-11-25 at 17.53.11.jpeg",
+      "checks": { "documentType": "MEDICINE_PACK", "patient.initials.value": null, "medications.length": 1 },
+      "medicines": [
+        {
+          "name": "meftal",
+          "checks": { "batchLot.value": null, "expiryDate.value": null },
+          "patterns": { "manufacturer.value": "blue\\s*cross", "extra:composition": "mefenamic" }
+        }
+      ]
+    },
+    {
+      "id": "unnamed-pack-side",
+      "file": "WhatsApp Image 2026-11-25 at 17.55.10.jpeg",
+      "checks": { "documentType": "MEDICINE_PACK", "medications.length": 1 },
+      "medicines": [
+        {
+          "name": "^$",
+          "checks": { "batchLot.value": "GKH1585A", "expiryDate.value": "2028-02", "manufacturer.value": null }
+        }
+      ]
+    },
+    {
+      "id": "us-practice-script",
+      "file": "WhatsApp Image 2026-11-25 at 18.00.25.jpeg",
+      "checks": { "documentType": "PRESCRIPTION", "patient.initials.value": "J.S.", "medications.length": 1 },
+      "medicines": [
+        {
+          "name": "amoxicillin.*250\\s*mg",
+          "checks": { "stopDate.value": null },
+          "patterns": {
+            "frequency.value": "t\\.?\\s*i\\.?\\s*d",
+            "duration.value": "7\\s*days?",
+            "dose.value": "(2|ii|two)\\s*tab"
+          }
+        }
+      ],
+      "patterns": { "documentDate.value": "^2000-(10-03|03-10)$" }
+    },
+    {
+      "id": "moxikind-front",
+      "file": "WhatsApp Image 2026-11-25 at 18.01.06 (1).jpeg",
+      "checks": { "documentType": "MEDICINE_PACK", "patient.initials.value": null, "medications.length": 1 },
+      "medicines": [
+        {
+          "name": "moxikind",
+          "checks": { "batchLot.value": null, "expiryDate.value": null },
+          "patterns": { "extra:composition": "amoxy?cillin.*clavul" }
+        }
+      ]
+    },
+    {
+      "id": "moxikind-back",
+      "file": "WhatsApp Image 2026-11-25 at 18.01.06.jpeg",
+      "checks": { "documentType": "MEDICINE_PACK", "patient.initials.value": null, "medications.length": 1 },
+      "medicines": [
+        {
+          "name": "^$|amoxy?cillin",
+          "checks": { "batchLot.value": "A7AEZ002", "expiryDate.value": "2027-10" },
+          "patterns": { "manufacturer.value": "copmed", "extra:composition": "amoxy?cillin.*clavul" }
+        }
+      ]
+    }
+  ]
+}
