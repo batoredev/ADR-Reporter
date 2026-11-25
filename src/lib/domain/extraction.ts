@@ -270,7 +270,7 @@ Rules:
 - Set readability=UNREADABLE and return empty lists and null values if the document cannot be read; do not reconstruct plausible contents.
 - Do not decide which medicine caused any adverse reaction, do not judge seriousness, and do not add clinical judgements.
 - Medicine names: copy the name with its dosage form as written (for example 'Flutifer Nasal spray'); you may correct an obviously misspelt or unclear form word ('Nanal spry' is 'Nasal spray') but never the medicine's own name. Keep frequencies such as '0-0-1' as written.
-- Text in other languages or scripts (Malayalam, Hindi, Tamil and others) is context only: never copy it into a value; read the English parts.
+- English only: read and record English text only. Ignore any text that is not in English; never copy, translate or transliterate it into a value.
 - Patient initials: "A. Kumar" gives "A.K."; a single written name such as "Ashvika" gives "A.". Age "4 yr", "4y" or "4 yrs" is age 4 with ageUnit YEARS; "8 mo" is MONTHS; "10 d" is DAYS.
 - Syrup and suspension strengths such as "(250/5)" or "(100/5)" (mg per 5 ml) belong in the name ("Syp. Calpol (250/5)"); the dose is the amount per administration ("4 ml"). Copy frequencies as written, including Q6H, Q8H, Q4H.
 - A dose written as Roman numerals or dotted letters ("ii", "iii", "ṫṫ" or "TT" with dots) means that many units: give "2 tablets". "#42", "Disp. 42" or "No. 42" is the quantity dispensed, never the dose. "p.o." is oral.
