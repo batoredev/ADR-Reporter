@@ -27,6 +27,7 @@
     "ai:check": "tsx --conditions=react-server scripts/check-ai.ts",
     "ai:evaluate": "tsx --conditions=react-server scripts/evaluate-extractor.ts",
     "ai:evaluate-chat": "tsx --conditions=react-server scripts/evaluate-chat-extraction.ts",
+    "ai:evaluate-synthetic": "tsx --conditions=react-server scripts/evaluate-synthetic.ts",
     "ml:export-learning": "tsx --conditions=react-server scripts/export-learning-examples.ts",
     "chatbot:prepare": "node scripts/prepare-chatbot-deploy.mjs",
     "ai:chat-check": "tsx --conditions=react-server scripts/check-chat-provider.ts"

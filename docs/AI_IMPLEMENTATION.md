@@ -142,6 +142,28 @@ and refuses fixture mode. Passing the supplied expectations is evidence about th
 perfect extraction on arbitrary documents. Source quotes and page references are model-produced and still require
 comparison with the original. The image benchmark has now passed with live Ollama credentials as recorded above. PDF coverage is still pending.
 
+### Reading medicine packs
+
+Medicine boxes, strips and covers are the main thing reporters photograph, so pack reading gets the most care.
+The structuring instructions cover every common label (Batch No., B.No., LOT, BN; MFG, MFD, D.O.M.; EXP, Use
+before), dates as printed ("MAY.2026", "05/26"), labels printed in one column with the stamped values beside
+them, and "Manufactured for X by Y". After the model, fixed rules in `reviseReading` correct its predictable
+slips on a pack:
+
+- brand and generic text read the wrong way round are swapped back;
+- a face showing only generic text has no brand (name empty), never an ingredient as the name;
+- the brand takes the strength printed beside it on its own line ("Dolo" on a line "Dolo 650" is "Dolo 650");
+- the composition is the whole ingredient block after "contains", or the generic line on the front, never the
+  brand line, a pack size or a fragment;
+- the manufacturer is the company after Manufactured by, Mfd. by or Made in India by, or after "by" in
+  "Manufactured for X by Y"; never the marketer; none when the pack names no maker;
+- Hindi or regional-language text printed beside the English is dropped from mixed lines;
+- every pack date format is read: "05/2026", "05/26", "MAY.2026", "MAY-26", "MAY'26".
+
+`npm run ai:evaluate-synthetic -- --data=ml/data/vision-packs` scores the whole reading path on drawn pack
+photos with known answers (`ml/vision/render.py --kinds pack`, with `--hard` for poor photos), and reports
+wrong values shown as certain separately from wrong values flagged for checking.
+
 ### The double-read check
 
 A small vision model does not leave a photo it cannot read blank: it invents a plausible document. On drawn

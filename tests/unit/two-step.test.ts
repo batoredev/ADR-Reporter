@@ -79,11 +79,89 @@ describe("two-step local reading: the fixed part", () => {
     ]);
   });
 
+  it("reads a pack as a careful person would: brand with strength, full composition, the real maker", () => {
+    const pack = (m: Partial<CompactReading["medicines"][number]>, transcript: string) =>
+      reviseReading(blank({ documentType: "MEDICINE_PACK", medicines: [medicine(m)] }), transcript).medicines[0];
+    // Brand and generic read the wrong way round.
+    expect(
+      pack(
+        { name: "Thyroxine Sodium Tablets IP", composition: "Thyronorm 50 mcg" },
+        "Rx Thyroxine Sodium Tablets IP\nThyronorm® 50 mcg\n100 Tablets",
+      ),
+    ).toMatchObject({ name: "Thyronorm 50 mcg", composition: "Thyroxine Sodium Tablets IP" });
+    // The strength printed beside the brand belongs to it; the brand line again is not a composition.
+    expect(
+      pack({ name: "Dolo", composition: "Dolo 650" }, "Paracetamol Tablets IP\nDolo 650\n15 Tablets"),
+    ).toMatchObject({
+      name: "Dolo 650",
+      composition: "Paracetamol Tablets IP",
+    });
+    // A back panel without the brand: no name; the whole ingredient block, not one line of it.
+    const back =
+      "Each tablet contains:\nMontelukast Sodium IP\neq. to Montelukast 10 mg\nExcipients q.s.\nB.No. KZ4417A";
+    expect(pack({ name: "Montelukast Sodium IP", composition: "eq. to Montelukast 10 mg" }, back)).toMatchObject({
+      name: null,
+      composition: "Montelukast Sodium IP eq. to Montelukast 10 mg",
+    });
+    // The maker, never the marketer; "Manufactured for X by Y" is made by Y; no maker printed, none given.
+    const makers = "Marketed by:\nDr. Reddy's Laboratories Ltd.\nMfd. by:\nAlkem Laboratories Ltd.\nPlot No. 12, Baddi";
+    expect(pack({ name: "Zifi 200", manufacturer: "Dr. Reddy's Laboratories Ltd." }, makers).manufacturer).toBe(
+      "Alkem Laboratories Ltd.",
+    );
+    const forBy = "Manufactured for: Abbott Healthcare Pvt. Ltd.\nby: Micro Labs Ltd.\nBaddi (HP)";
+    expect(pack({ name: "Zifi 200", manufacturer: "Abbott Healthcare Pvt. Ltd." }, forBy).manufacturer).toBe(
+      "Micro Labs Ltd.",
+    );
+    expect(
+      pack({ name: "Dolo 650", manufacturer: "Mankind Pharma Ltd." }, "Dolo 650\nMankind Pharma Ltd.\n15 Tablets")
+        .manufacturer,
+    ).toBeNull();
+    // A pack line that names no maker ("Mfg. Lic. No.") is not a maker label.
+    expect(pack({ name: "Zifi 200" }, "Mfg. Lic. No.: G/25/536\nMade in India by:\nCipla Ltd.").manufacturer).toBe(
+      "Cipla Ltd.",
+    );
+  });
+
+  it("keeps the English of a pack line that also carries Hindi", () => {
+    expect(
+      cleanTranscript(
+        "Rx Amoxycillin & Potassium Clavulanate Tablets IP Moxikind® CV 1 gm मोक्सीकाइन्ड-सी वी 1 ग्राम 3 x 6 Tablets",
+      ),
+    ).toBe("Rx Amoxycillin & Potassium Clavulanate Tablets IP Moxikind® CV 1 gm - 1 3 x 6 Tablets");
+    expect(cleanTranscript("Store below 30°C. 10 µg")).toBe("Store below 30°C. 10 µg");
+  });
+
+  it("never takes a pack size, PIN code or licence number as the batch", () => {
+    const batchOf = (batch: string, transcript: string) =>
+      reviseReading(
+        blank({ documentType: "MEDICINE_PACK", medicines: [medicine({ name: "Zifi 200", batch })] }),
+        transcript,
+      ).medicines[0].batch;
+    expect(batchOf("20 g", "Zifi 200\n20 g")).toBeNull();
+    expect(batchOf("173 205", "Plot No. 12, Baddi (HP) 173 205")).toBeNull();
+    expect(batchOf("G/25/536", "Mfg. Lic. No.: G/25/536")).toBeNull();
+    expect(batchOf("KZ4417A", "B.No. KZ4417A")).toBe("KZ4417A");
+  });
+
   it("reads dates day first, month-year on packs, and month first only on a US form", () => {
     expect(isoDate("22/10/2026")).toEqual({ value: "2026-10-22", uncertain: false });
     expect(isoDate("20-9-2022")).toEqual({ value: "2022-09-20", uncertain: false });
     expect(isoDate("10/2027")).toEqual({ value: "2027-10", uncertain: false });
     expect(isoDate("10/3/00", true)).toEqual({ value: "2000-10-03", uncertain: true });
+    // Every way a pack prints a manufacturing or expiry month.
+    const packDates = [
+      "MAY.2026",
+      "MAY-26",
+      "MAY'26",
+      "May/2026",
+      "MAY 2026",
+      "05/26",
+      "05/2026",
+      "05-2026",
+      "05.2026",
+    ];
+    expect(packDates.map((d) => isoDate(d)?.value)).toEqual(Array(packDates.length).fill("2026-05"));
+    expect(isoDate("SEP.27")?.value).toBe("2027-09");
   });
 
   it("forms initials from a name and never keeps the name", () => {

@@ -114,9 +114,25 @@ def draw_lines(r, img, lines, hand, ink, top, header=0):
     return int(y)
 
 
+LABELS = ("Batch No.:", "B.No.", "B. No.:", "Batch No", "LOT", "Lot No.:", "BN:", "Mfg. Date:", "MFG.", "MFD.", "Mfd.:",
+          "Mfg Dt.", "D.O.M.:", "MFG. DATE", "Expiry Date:", "EXP.", "Exp.:", "Use before", "EXP. DATE", "Best before")
+
+
+def dotted(r, img, xy, text, f, colour):
+    """Inkjet dot-matrix print, as batch numbers and dates are stamped on packs."""
+    w = int(f.getlength(text)) + 8
+    layer = Image.new("L", (w, int(f.size * 1.5)), 0)
+    ImageDraw.Draw(layer).text((2, 2), text, font=f, fill=255)
+    dots = np.zeros((layer.height, w), np.uint8)
+    dots[:: r.choice([2, 3]), :: r.choice([2, 3])] = 255
+    mask = Image.fromarray(np.minimum(np.asarray(layer), dots)).filter(ImageFilter.MaxFilter(3))
+    img.paste(Image.new("RGB", (w, layer.height), colour), (int(xy[0]), int(xy[1])), mask)
+
+
 def pack_panel(r, lines):
-    """A box or strip face: a coloured panel, the brand large, batch and dates stamped."""
-    w, h = r.choice([(900, 1100), (1000, 900), (1100, 800)])
+    """A box face: a coloured panel, the brand large, warnings small, batch and dates stamped. A run of printed
+    labels followed by as many values is drawn the way boxes print it: labels in a column, values stamped beside."""
+    w, h = r.choice([(900, 1200), (1000, 1000), (1100, 900)])
     base = r.choice([(250, 250, 250), (235, 244, 252), (252, 240, 235), (240, 250, 240), (255, 248, 225)])
     img = Image.new("RGB", (w, h), base)
     d = ImageDraw.Draw(img)
@@ -124,35 +140,71 @@ def pack_panel(r, lines):
     if r.random() < 0.7:
         d.rectangle([0, 0, w, r.randint(30, 90)], fill=band)
     y, margin = r.randint(100, 140), 50
-    text_font = fit(lines, r.choice(PRINT), w - 2 * margin, r.randint(30, 40))
+    text_font = fit(lines, r.choice(PRINT), w - 2 * margin, r.randint(26, 36))
     stamp = font(r.choice(STAMP), text_font.size + 2)
-    brand_done = False
-    for line in lines:
-        stamped = line.startswith(("Batch", "Mfg. Date", "Expiry", "M.R.P.", "MFG", "EXP")) or line[:2].isdigit()
-        if not brand_done and len(line) < 24 and not stamped and line[:1].isupper():
+    ink = r.choice([(30, 30, 30), (40, 30, 110), (20, 20, 60)])
+    brand_done, i = False, 0
+    while i < len(lines):
+        line = lines[i]
+        run = 0
+        while i + run < len(lines) and lines[i + run] in LABELS:
+            run += 1
+        if run >= 2 and i + 2 * run <= len(lines):  # labels column, values stamped beside them
+            gap = max(text_font.getlength(l) for l in lines[i:i + run]) + r.randint(20, 60)
+            for k in range(run):
+                d.text((margin, y), lines[i + k], font=text_font, fill=(40, 40, 40))
+                value = lines[i + run + k]
+                if HARD and r.random() < 0.6:
+                    dotted(r, img, (margin + gap, y), value, stamp, ink)
+                else:
+                    d.text((margin + gap, y), value, font=stamp, fill=ink)
+                y += text_font.size * 1.35
+            i += 2 * run
+            continue
+        stamped = line.startswith(LABELS) or line[:2].isdigit() or line.startswith(("M.R.P.", "MFG", "EXP"))
+        heading = line.endswith(":") or "contains" in line.lower() or line.startswith(("Rx", "Composition"))
+        if not brand_done and len(line) < 26 and not stamped and not heading and line[:1].isupper():
             f, colour, brand_done = fit([line], r.choice(BOLD), w - 2 * margin, 64), band, True
         else:
-            f, colour = (stamp, (30, 30, 30)) if stamped else (text_font, (40, 40, 40))
-        if stamped and HARD and r.random() < 0.6:  # inkjet dot-matrix print of batch and dates
-            layer = Image.new("L", (w, int(f.size * 1.6)), 0)
-            ImageDraw.Draw(layer).text((margin, 2), line, font=f, fill=255)
-            dots = np.zeros((layer.height, w), np.uint8)
-            dots[::3, ::3] = 255
-            mask = Image.fromarray(np.minimum(np.asarray(layer), dots)).filter(ImageFilter.MaxFilter(3))
-            img.paste(Image.new("RGB", (w, layer.height), colour), (0, int(y)), mask)
+            f, colour = (stamp, ink) if stamped else (text_font, (40, 40, 40))
+        if stamped and HARD and r.random() < 0.6:
+            dotted(r, img, (margin, y), line, f, colour)
         else:
             d.text((margin, y), line, font=f, fill=colour)
         y += f.size * 1.3
+        i += 1
         if y > h - 30:
             return None
     img = img.crop((0, 0, w, min(h, int(y) + r.randint(30, 120))))
-    if HARD and r.random() < 0.5:  # a curved strip or a bulging box face
+    if r.random() < (0.5 if HARD else 0.25):  # a curved bottle label or a bulging box face
         a = np.asarray(img)
         ph, pw = a.shape[:2]
-        shift = (r.uniform(8, 25) * np.sin(np.pi * np.arange(pw) / pw)).astype(int)
+        shift = (r.uniform(8, 30) * np.sin(np.pi * np.arange(pw) / pw)).astype(int)
         rows = (np.arange(ph)[:, None] - shift[None, :]).clip(0, ph - 1)
         img = Image.fromarray(a[rows, np.arange(pw)[None, :]])
     return img
+
+
+def foil_strip(r, lines):
+    """A blister strip's foil back: silver, wrinkled, the brand repeated, batch and expiry pressed into the foil."""
+    w = r.choice([1000, 1100, 1200])
+    f = fit(lines, r.choice(BOLD + PRINT), w - 120, r.randint(30, 40))
+    h = int(len(lines) * f.size * 1.7) + 120
+    x = np.linspace(0, 6 * np.pi, w)
+    metal = 175 + 35 * np.sin(x * r.uniform(0.5, 2))[None, :] + np.random.default_rng(r.randint(0, 1 << 30)).normal(0, 10, (h, w))
+    img = Image.fromarray(np.clip(np.stack([metal, metal * 1.01, metal * 1.03], -1), 0, 255).astype(np.uint8))
+    d = ImageDraw.Draw(img)
+    colour = r.choice([(30, 60, 140), (150, 20, 30), (20, 90, 60), (40, 40, 40)])
+    y = 60
+    for line in lines:
+        pressed = line.startswith(LABELS) or any(l in line for l in (" EXP", "EXP.", "Use before", "Best before"))
+        if pressed:  # embossed: lighter and darker copies offset by a pixel, no ink
+            d.text((62, y + 1), line, font=f, fill=(230, 230, 235))
+            d.text((60, y), line, font=f, fill=(120, 120, 125))
+        else:
+            d.text((60 + r.randint(-20, 40), y), line, font=f, fill=colour)
+        y += f.size * 1.7
+    return img.filter(ImageFilter.GaussianBlur(0.4))
 
 
 def photograph(r, page):
@@ -200,12 +252,14 @@ def render(r, row):
     lines = row["transcript"].split("\n")
     kind = row["kind"]
     if kind == "pack":
-        page = pack_panel(r, lines)
-        style = "pack"
+        strip = len(lines) >= 4 and lines[1] == lines[3]
+        page = foil_strip(r, lines) if strip else pack_panel(r, lines)
+        style = "strip" if strip else "pack"
     else:
         w, h = 1000, 1400
         page = paper(r, w, h, kind)
-        hand = kind in CLINICAL and kind != "us_script" and r.random() < 0.7
+        # Prescriptions are mostly typed; handwriting is the smaller share.
+        hand = kind in CLINICAL and kind != "us_script" and r.random() < 0.25
         header = 0
         if hand:  # the clinic's printed letterhead, then the doctor's handwriting
             header = sum(1 for l in lines[:2] if l.startswith(("Dr.", "Reg.", "Ph:", "Timings", "MBBS", "M.D", "MS ", "DCH", "PHC",
@@ -227,6 +281,7 @@ def main():
     parser.add_argument("--out", default="ml/data/vision")
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--hard", action="store_true", help="hurried handwriting and poor phone photos")
+    parser.add_argument("--kinds", default="", help="only these document kinds, e.g. pack or pack,prescription")
     args = parser.parse_args()
     global HARD
     HARD = args.hard
@@ -236,6 +291,8 @@ def main():
     rows, n = [], 0
     while n < args.count:
         row = make_data.example(r)
+        if args.kinds and row["kind"] not in args.kinds.split(","):
+            continue
         image, style = render(r, row)
         if image is None:
             continue

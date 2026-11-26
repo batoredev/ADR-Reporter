@@ -24,6 +24,8 @@ import json
 import random
 from pathlib import Path
 
+import packs
+
 FIRST = "Ravi Priya Anil Meena Suresh Kavya Arjun Lakshmi Vikram Deepa Rahul Anjali Kiran Sunita Manoj Rekha Nikhil Pooja Sanjay Divya".split()
 LAST = "Sharma Nair Reddy Iyer Menon Das Patel Singh Gupta Pillai Rao Verma Joshi Kulkarni Bose Varghese".split()
 US_NAMES = ["Mary Jones", "Robert Brown", "Linda Davis", "James Miller", "Susan Wilson"]
@@ -263,64 +265,9 @@ def us_script(r):
     return out, lines
 
 
-PACK_NOISE = [
-    "SCHEDULE H PRESCRIPTION DRUG - CAUTION", "Not to be sold by retail without the prescription of a Registered Medical Practitioner.",
-    "SCHEDULE H DRUG WARNING:", "To be sold by retail on the prescription of a Registered Medical Practitioner only.",
-    "Store in a cool dry place below 30°C.", "Protect from light and moisture.", "Keep out of reach of children.",
-    "Dosage: As directed by the Physician.", "Dosage: As prescribed by the Physician.", "For more information, refer package insert.",
-    "® Registered Trade Mark", "(Inclusive of all taxes)", "Colour: Titanium Dioxide IP", "Read the leaflet before use.",
-]
-TOWNS = ["Baddi, Distt. Solan (HP)", "Verna, Goa", "Sikkim", "Pithampur, Dhar (MP)", "Ahmedabad, Gujarat", "Haridwar, Uttarakhand",
-         "Bengaluru, Karnataka", "Nalagarh (HP)"]
-
-
-def address(r):
-    return f"{r.choice(['Plot No.', 'Unit-II, Plot', 'Survey No.', 'L-'])} {r.randint(1, 300)}, {r.choice(['Industrial Area', 'Industrial Estate', 'Phase II'])}, {r.choice(TOWNS)} {r.randint(100, 899)} {r.randint(100, 999)}"
-
-
 def pack(r):
-    out = blank("MEDICINE_PACK")
-    brand, generic, composition = r.choice(PACK_BRANDS)
-    maker, marketer = r.choice(MAKERS), r.choice(MARKETERS)
-    letters = "ABCDEFGHKMNPRSTZ"
-    batch = f"{r.choice(letters)}{r.choice(letters)}{r.randint(100, 999)}{r.choice(letters)}{r.randint(10, 99)}"
-    mm, yy = r.randint(1, 12), r.choice([2025, 2026])
-    mfg, exp = f"{mm:02d}/{yy}", f"{mm:02d}/{yy + r.choice([2, 3])}"
-    price = f"{r.randint(40, 400)}.{r.randint(10, 99)}"
-    if r.random() < 0.35:  # front: brand and generic name
-        strength = r.choice(["", " 500", " 200", " 10"])
-        mark = r.choice(["®", ""])
-        lines = [f"Rx {generic}", f"{brand}{mark}{strength}", f"{r.choice([10, 15])} Tablets"]
-        if r.random() < 0.5:
-            lines.insert(r.randint(1, 3), r.choice(PACK_NOISE[:4] + [r.choice(MARKETERS)]))
-        entry = med(name=f"{brand}{strength}", composition=generic)
-    else:  # back or side: composition, licence, batch, dates, makers
-        has_name = r.random() < 0.7
-        parts = composition.split("|")
-        lines = ([brand] if has_name else []) + ["Composition:", "Each film coated tablet contains :", *parts, "Excipients q.s."]
-        lines.append(f"Mfg. Lic. No.: {r.choice(['G/25/', 'MB/06/', 'KTK/28/'])}{r.randint(100, 999)}")
-        shifted = r.random() < 0.3
-        if shifted:  # labels and stamped values transcribed in separate columns
-            lines += [f"Batch No.: {batch}", mfg, f"Mfg. Date: {exp}", price, "Expiry Date:"]
-        else:
-            lines += [f"Batch No.: {batch}", f"Mfg. Date: {mfg}", f"Expiry Date: {exp}", f"M.R.P. Rs. {price}"]
-        if r.random() < 0.2:  # a strip printed with no batch or dates: an address PIN code is not a batch
-            lines = [l for l in lines if not l.startswith(("Batch", "Mfg. Date", "Expiry", "M.R.P.", "Expiry Date:"))
-                     and l not in (mfg, price)]
-            batch, mfg, exp, shifted = None, None, None, False
-        noise = r.sample(PACK_NOISE, r.randint(2, 6))
-        if r.random() < 0.4:
-            noise.append("".join(r.choice("ABCDEFGHKMNPRSTZ") for _ in range(8)) + str(r.randint(100000, 999999)))
-        after = lines.index("Excipients q.s.") + 1  # the composition block stays together
-        for line in noise:
-            lines.insert(r.randint(after, len(lines)), line)
-        lines += ["Marketed by:", marketer, address(r) if r.random() < 0.5 else "", "Manufactured by:", maker, address(r)]
-        lines = [l for l in lines if l]
-        # Shifted columns: the text says "Mfg. Date: <expiry>", so that is what is copied; the app corrects it.
-        entry = med(name=brand if has_name else None, composition=" ".join(parts), manufacturer=maker, batch=batch,
-                    mfgDate=exp if shifted else mfg, expiryDate=None if shifted else exp)
-    out["medicines"].append(entry)
-    return out, lines
+    """A medicine pack face: see packs.py, the richest generator, since packs are what reporters photograph most."""
+    return packs.pack(r, HELD, blank, med)
 
 
 HELD = False  # set for hard.jsonl: draw only from the held-out pools
@@ -516,16 +463,17 @@ def other_page(r):
 
 def example(r):
     kind = r.random()
-    make = (prescription if kind < 0.24 else pack if kind < 0.44 else complaint_prescription if kind < 0.52
-            else clinical_note if kind < 0.70 else discharge_summary if kind < 0.81 else lab_report if kind < 0.89
-            else other_page if kind < 0.95 else us_script)
+    # Packs are what reporters photograph most; prescriptions next (mostly typed).
+    make = (pack if kind < 0.45 else prescription if kind < 0.62 else complaint_prescription if kind < 0.67
+            else clinical_note if kind < 0.79 else discharge_summary if kind < 0.86 else lab_report if kind < 0.92
+            else other_page if kind < 0.97 else us_script)
     out, lines = make(r)
     return {"transcript": "\n".join(lines), "target": {k: out[k] for k in KEYS}, "kind": make.__name__}
 
 
 def hard_example(r):
     """Held-out medicines, reactions, tests and phrasings in the document kinds that need judgement."""
-    make = r.choice([clinical_note, clinical_note, discharge_summary, lab_report])
+    make = r.choice([pack, pack, pack, clinical_note, clinical_note, discharge_summary, lab_report])
     out, lines = make(r)
     return {"transcript": "\n".join(lines), "target": {k: out[k] for k in KEYS}, "kind": "hard_" + make.__name__}
 

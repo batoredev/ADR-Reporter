@@ -124,7 +124,7 @@ def main():
     parser.add_argument("--epochs", type=float, default=1.0)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--accumulate", type=int, default=8)
-    parser.add_argument("--max-len", type=int, default=1536)
+    parser.add_argument("--max-len", type=int, default=1792)
     parser.add_argument("--check", type=int, default=60)
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--seed", type=int, default=7)
