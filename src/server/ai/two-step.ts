@@ -156,8 +156,14 @@ export const looksGeneric = (text: string | null | undefined) => genericness(tex
 const DOSAGE_FORM =
   /\b(?:tablets?|capsules?|syrup|suspension|injection|ointment|cream|solution|aerosol|spray|drops|gel)\b/i;
 // What may follow a brand on its own line: a strength or a variant ("Dolo 650", "Telma® 40", "Glycomet SR 500").
-const STRENGTH_TAIL =
-  /^(?:[\s-]*(?:\d+(?:\.\d+)?\s*(?:mg|mcg|g|gm|ml|iu|%)?|sr|xr|er|cr|ls|cv|ds|mr|od|forte|plus))+\s*$/i;
+// Checked word by word with a simple anchored pattern, so no line from a photo can make the check slow.
+const STRENGTH_WORD =
+  /^(?:\d+(?:\.\d+)?(?:mg|mcg|g|gm|ml|iu|%)?|mg|mcg|g|gm|ml|iu|%|sr|xr|er|cr|ls|cv|ds|mr|od|forte|plus)$/i;
+function isStrengthTail(tail: string): boolean {
+  if (tail.length > 40 || !/\d/.test(tail)) return false;
+  const words = tail.split(/[\s-]+/).filter(Boolean);
+  return words.length > 0 && words.every((w) => STRENGTH_WORD.test(w));
+}
 const MAKER =
   /\b(?:manufactured\s+(?:in\s+india\s+)?by|mfd\.?\s*by|mfg\.?\s*by|made\s+in\s+india\s+by)\b\s*:?\s*(.*)$/i;
 const FOR_THEN_BY = /^\s*by\s*:?\s*(.+)$/i;
@@ -252,12 +258,7 @@ export function reviseReading(compact: CompactReading, transcript: string): Comp
       const name = plain(m.name).toLowerCase();
       const line = lines
         .map(plain)
-        .find(
-          (l) =>
-            l.toLowerCase().startsWith(name) &&
-            /\d/.test(l.slice(name.length)) &&
-            STRENGTH_TAIL.test(l.slice(name.length)),
-        );
+        .find((l) => l.toLowerCase().startsWith(name) && isStrengthTail(l.slice(name.length)));
       if (line && line.length > name.length) m.name = line;
     }
     // The composition: the ingredient lines after "contains" together, else the generic line on the front.

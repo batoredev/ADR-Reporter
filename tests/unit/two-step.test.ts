@@ -131,6 +131,19 @@ describe("two-step local reading: the fixed part", () => {
     expect(cleanTranscript("Store below 30°C. 10 µg")).toBe("Store below 30°C. 10 µg");
   });
 
+  it("joins a brand to its strength or variant, quickly even for a hostile line", () => {
+    const nameOf = (name: string, transcript: string) =>
+      reviseReading(blank({ documentType: "MEDICINE_PACK", medicines: [medicine({ name })] }), transcript).medicines[0]
+        .name;
+    expect(nameOf("Glycomet", "Glycomet SR 500\nMetformin Hydrochloride IP 500 mg")).toBe("Glycomet SR 500");
+    expect(nameOf("Amlokind", "Amlokind-5")).toBe("Amlokind-5");
+    expect(nameOf("Telma", "Telma® 40")).toBe("Telma 40");
+    // A line built to make a pattern backtrack: rejected at once, the name unchanged.
+    const started = performance.now();
+    expect(nameOf("Dolo", `Dolo ${"1".repeat(5000)}x`)).toBe("Dolo");
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
   it("never takes a pack size, PIN code or licence number as the batch", () => {
     const batchOf = (batch: string, transcript: string) =>
       reviseReading(
