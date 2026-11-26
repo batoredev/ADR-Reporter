@@ -4,6 +4,7 @@ import { createAnthropicProvider } from "./anthropic";
 import { createFixtureProvider } from "./fixture";
 import { createGeminiProvider } from "./gemini";
 import { createOllamaProvider, OLLAMA_CLOUD_URL } from "./ollama";
+import { createTwoStepProvider } from "./two-step";
 import { AiError, type AiProvider, type DocumentMimeType, type GenerateRequest } from "./types";
 
 export { AiError, type AiProvider, type AiTask, type DocumentMimeType } from "./types";
@@ -40,7 +41,8 @@ const list = (value: string | undefined) =>
  *                     (default: ollama, gemini, then anthropic if ALLOW_PAID_AI)
  *   GEMINI_API_KEY    enables Gemini; GEMINI_MODEL is a comma list tried in turn
  *   OLLAMA_API_KEY    enables Ollama Cloud; OLLAMA_BASE_URL points at another Ollama server instead;
- *                     OLLAMA_NUM_CTX optionally sets the context window (for a local model on a small GPU)
+ *                     OLLAMA_NUM_CTX optionally sets the context window (for a local model on a small GPU);
+ *                     OLLAMA_TEXT_MODEL makes documents read in two steps: OLLAMA_MODEL transcribes, it structures
  *   ANTHROPIC_API_KEY enables Claude; ANTHROPIC_MODEL (default claude-sonnet-5-5), AI_EFFORT optional
  *
  * A provider without its key is skipped, never an error.
@@ -64,7 +66,14 @@ export function configuredProviders(env: Env = process.env): AiProvider[] {
       const models = list(env.OLLAMA_MODEL).length ? list(env.OLLAMA_MODEL) : [DEFAULT_OLLAMA_MODEL];
       // A smaller context lets a local model fit in a small GPU (a 65k default on a 4 GB card mostly runs on CPU).
       const numCtx = Number(env.OLLAMA_NUM_CTX) > 0 ? Math.floor(Number(env.OLLAMA_NUM_CTX)) : undefined;
-      for (const model of models) providers.push(createOllamaProvider({ baseUrl, apiKey, model, numCtx }));
+      // A local vision model with OLLAMA_TEXT_MODEL reads documents in two steps (transcribe, then structure).
+      const textModel = env.OLLAMA_TEXT_MODEL?.trim();
+      for (const model of models)
+        providers.push(
+          textModel
+            ? createTwoStepProvider({ baseUrl, visionModel: model, textModel, numCtx })
+            : createOllamaProvider({ baseUrl, apiKey, model, numCtx }),
+        );
     } else if (name === "anthropic" && ALLOW_PAID_AI) {
       const apiKey = env.ANTHROPIC_API_KEY?.trim() || env.AI_API_KEY?.trim();
       if (!apiKey) continue;
@@ -180,7 +189,10 @@ export async function generateWithFallback<T>(
     }
     const controller = new AbortController();
     // Reserve time for every remaining provider, including the last fallback.
-    const timeout = Math.min(ATTEMPT_TIMEOUT_MS[provider.name] ?? 60_000, remaining / (order.length - index));
+    // OLLAMA_TIMEOUT_MS gives a slow local model (the two-step reader on a laptop GPU) longer, within the total.
+    const ollamaLimit = Number(process.env.OLLAMA_TIMEOUT_MS) > 0 ? Number(process.env.OLLAMA_TIMEOUT_MS) : undefined;
+    const limit = (provider.name === "ollama" ? ollamaLimit : undefined) ?? ATTEMPT_TIMEOUT_MS[provider.name] ?? 60_000;
+    const timeout = Math.min(limit, remaining / (order.length - index));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const cancel = () => controller.abort();
     request.signal?.addEventListener("abort", cancel, { once: true });
