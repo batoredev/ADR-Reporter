@@ -21,6 +21,33 @@ import { AiError, parseReply, type AiProvider, type GenerateRequest } from "./ty
 export const TRANSCRIBE_PROMPT = `Transcribe all the English text in this image exactly as written, top to bottom.
 Keep each label on the same line as its value (for example "Batch No.: AB123"). On medicine boxes the printed labels and the stamped values are often in separate columns: pair each value with its label in order.
 Copy handwriting as best you can; copy numbers, dates and abbreviations exactly. Write repeated text only once. Skip any text that is not English. Output only the transcription.`;
+/**
+ * The second, differently worded reading of the same photo. A small vision model that cannot read a photo invents
+ * text, and invented text changes when the question changes; text that is really on the page does not.
+ */
+export const CHECK_PROMPT = `Copy out every line of English text visible in this photo, one line per line, in reading order.
+Write exactly what is printed or handwritten; if a word cannot be read, leave it out. Do not add anything.`;
+
+const wordsOf = (text: string) => text.toLowerCase().match(/[a-z0-9]+(?:[./-][a-z0-9]+)*/g) ?? [];
+/** Share of a text's words that the other reading also has (order and line breaks do not matter). */
+export function sharedWords(text: string, other: string): number {
+  const seen = new Set(wordsOf(other));
+  const words = wordsOf(text);
+  return words.length ? words.filter((w) => seen.has(w)).length / words.length : 1;
+}
+/**
+ * Whether a value read from the first transcript is confirmed by the second reading: all its words are there, or
+ * nearly all of the line it came from is (so a corrected slip on a stable line, "x sd" read as "x 5d", still counts).
+ */
+export function confirmedBy(second: string) {
+  return (value: string, line: string | null) =>
+    sharedWords(value, second) === 1 || (line !== null && sharedWords(line, second) >= 0.8);
+}
+// Of the first reading's words, the share the second reading also has. Measured on 26 November 2026: drawn photos
+// below 0.7 kept at most 22% of their values (the model was inventing), while the reporter's 8 real photos all
+// scored 0.91 or more. Below LOW nothing is filled in; below CLEAR the photo is marked partly readable.
+export const AGREEMENT_LOW = 0.7;
+export const AGREEMENT_CLEAR = 0.9;
 
 const text = z.string().nullable();
 export const compactSchema = z.object({
@@ -342,9 +369,14 @@ const none: Value = { value: null, sourceText: null, uncertain: false, approxima
 
 /**
  * Builds the full reading (same shape as a one-step reading) from the transcript and the picked values.
- * Every value carries the transcript line it came from; a value no line supports is marked uncertain.
+ * Every value carries the transcript line it came from; a value no line supports is marked uncertain, and so is
+ * one a second reading of the photo does not confirm (`confirm`, see confirmedBy).
  */
-export function expandReading(compact: CompactReading, transcript: string) {
+export function expandReading(
+  compact: CompactReading,
+  transcript: string,
+  confirm: (value: string, line: string | null) => boolean = () => true,
+) {
   const lines = transcript.split("\n");
   const us = /\b[A-Z]{2}\s+\d{5}\b|\bD\.?E\.?A\.?\b/.test(transcript);
   const nameWords = patientNameWords(transcript, compact.patientName);
@@ -352,15 +384,21 @@ export function expandReading(compact: CompactReading, transcript: string) {
     const v = value?.trim() || null;
     if (!v) return none;
     const quote = sourceLine(lines, quoteFrom ?? v);
-    return { value: v, sourceText: quote, uncertain: !quote, approximate: false };
+    return { value: v, sourceText: quote, uncertain: !quote || !confirm(v, quote), approximate: false };
   };
   const date = (written: string | null | undefined): Value => {
     const parsed = isoDate(written, us);
     if (!parsed) return written?.trim() ? { ...read(written), value: null, uncertain: true } : none;
     const quote = sourceLine(lines, written);
-    return { value: parsed.value, sourceText: quote, uncertain: parsed.uncertain || !quote, approximate: false };
+    return {
+      value: parsed.value,
+      sourceText: quote,
+      uncertain: parsed.uncertain || !quote || !confirm(written!, quote),
+      approximate: false,
+    };
   };
   const initials = initialsOf(compact.patientName ?? (nameWords.length ? nameWords.join(" ") : null));
+  const nameConfirmed = !compact.patientName || confirm(compact.patientName, sourceLine(lines, compact.patientName));
   const clinical = ["PRESCRIPTION", "CLINICAL_NOTE", "DISCHARGE_SUMMARY"].includes(compact.documentType);
   const medications = compact.medicines.map((m) => {
     const mfg = isoDate(m.mfgDate);
@@ -408,9 +446,11 @@ export function expandReading(compact: CompactReading, transcript: string) {
   return hideNames(
     {
       documentType: compact.documentType,
-      readability: transcript.length < 15 ? ("UNREADABLE" as const) : ("CLEAR" as const),
+      readability: (transcript.length < 15 ? "UNREADABLE" : "CLEAR") as "CLEAR" | "PARTIAL" | "UNREADABLE",
       patient: {
-        initials: initials ? { value: initials, sourceText: initials, uncertain: false, approximate: false } : none,
+        initials: initials
+          ? { value: initials, sourceText: initials, uncertain: !nameConfirmed, approximate: false }
+          : none,
         age: read(compact.age?.replace(/[^\d.]/g, "") || null, compact.age),
         ageUnit: compact.age && compact.ageUnit ? { ...read(compact.age), value: compact.ageUnit } : none,
         gender: compact.gender ? { ...read(genderWord[compact.gender]), value: compact.gender } : none,
@@ -456,6 +496,8 @@ interface Config {
   numCtx?: number;
   /** Keep a de-identified copy of each reading so submitted reports can teach the reader (LEARN_FROM_REPORTS). */
   keepForLearning?: boolean;
+  /** Read each photo a second time and trust only what both readings contain (OLLAMA_DOUBLE_READ, on by default). */
+  doubleRead?: boolean;
   fetchImpl?: typeof fetch;
 }
 
@@ -521,6 +563,28 @@ export function createTwoStepProvider(config: Config): AiProvider {
       );
       const transcript = cleanTranscript(seen.content);
       if (transcript.length < 15) throw new AiError("The document could not be read reliably.");
+      // The check reading follows at once, while the vision model is still loaded (a small GPU holds one model at
+      // a time). If it fails, the first reading is used as before; if the two disagree badly, nothing is filled in.
+      const second =
+        config.doubleRead === false
+          ? null
+          : await chat(
+              config,
+              {
+                model: config.visionModel,
+                options: options(900),
+                messages: [{ role: "user", content: CHECK_PROMPT, images: [toBase64(document.bytes)] }],
+              },
+              signal,
+            ).then(
+              (r) => cleanTranscript(r.content),
+              () => null,
+            );
+      const agreement = second === null ? null : sharedWords(transcript, second);
+      if (agreement !== null && agreement < AGREEMENT_LOW)
+        throw new AiError(
+          "This photo could not be read reliably: two readings of it disagree. Retake it closer and in good light, or type the details.",
+        );
       const picked = await chat(
         config,
         {
@@ -535,14 +599,17 @@ export function createTwoStepProvider(config: Config): AiProvider {
         signal,
       );
       const compact = reviseReading(parseReply(compactSchema, picked.content, "Ollama"), transcript);
-      const parsed = schema.safeParse(expandReading(compact, transcript));
+      const expanded = expandReading(compact, transcript, second === null ? undefined : confirmedBy(second));
+      if (agreement !== null && agreement < AGREEMENT_CLEAR) expanded.readability = "PARTIAL";
+      const parsed = schema.safeParse(expanded);
       if (!parsed.success) throw new AiError("Ollama replied in the wrong format.");
       // The raw transcript is never kept: it can hold the patient's name. Only a de-identified copy is, to learn from.
       return {
         output: parsed.data,
         meta: {
-          steps: 2,
+          steps: second === null ? 2 : 3,
           outputTokens: seen.tokens + picked.tokens,
+          ...(agreement !== null ? { agreement: Math.round(agreement * 1000) / 1000 } : {}),
           ...(config.keepForLearning
             ? { learning: { textModel: config.textModel, ...deidentify(transcript, compact) } }
             : {}),

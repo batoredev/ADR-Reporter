@@ -142,6 +142,25 @@ and refuses fixture mode. Passing the supplied expectations is evidence about th
 perfect extraction on arbitrary documents. Source quotes and page references are model-produced and still require
 comparison with the original. The image benchmark has now passed with live Ollama credentials as recorded above. PDF coverage is still pending.
 
+### The double-read check
+
+A small vision model does not leave a photo it cannot read blank: it invents a plausible document. On drawn
+photos of hurried handwriting (`ml/vision/render.py --hard`), `qwen3-vl:2b-instruct` returned invented medicines,
+doses and dates for about one photo in five. Text invented in this way changes when the question is reworded;
+text that is really on the page does not. So the two-step reader reads every photo a second time with
+differently worded instructions (`CHECK_PROMPT`, temperature 0, right after the first reading while the model
+is still loaded) and compares the two readings word by word:
+
+- under 70% agreement nothing is filled in, and the reporter is asked to retake the photo or type the details;
+- under 90% the reading is marked partly readable;
+- any value that the second reading does not contain, and whose line it does not mostly contain, is marked
+  uncertain, so the reporter checks it at the final confirmation.
+
+Measured on 26 November 2026: drawn photos below 0.7 kept at most 22% of their values, photos at 0.95 or above
+had an average character error of 2.7%, and the reporter's 8 real photos scored 0.91 to 1.00. The check adds one
+vision call (about 5 seconds). If that call fails, the first reading is used as before.
+`OLLAMA_DOUBLE_READ=off` turns it off. It cannot catch a misreading the model makes the same way both times.
+
 ### Learning from submitted reports
 
 Every submitted report teaches the local two-step reader. When the reader reads a photo it keeps a de-identified

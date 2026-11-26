@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { chatExtractionSchema } from "@/lib/domain/chat-extraction";
+import { AiError } from "@/server/ai/provider";
 import {
   cleanTranscript,
+  confirmedBy,
+  createTwoStepProvider,
+  sharedWords,
   expandReading,
   ingredientsIn,
   initialsOf,
@@ -243,5 +247,88 @@ describe("two-step local reading: the fixed part", () => {
     expect(sourceLine(["Batch No.: A7AEZ002"], "ZZ999")).toBeNull();
     const reading = expandReading(blank({ medicines: [medicine({ name: "Augmentin 625" })] }), FLUTIFER_RX);
     expect(reading.medications[0].name.uncertain).toBe(true);
+  });
+});
+
+describe("two-step local reading: the double-read check", () => {
+  // Two real readings of the same handwritten prescription: the brand was misread differently each time.
+  const FIRST =
+    "22/10/2026. 54kg\nA. Kumar, 24, M. 111/69 mmHg.\nRx\nPlutifer Nand spray - 0-0-1\n2 sprays every nostril for 2 weeks";
+  const SECOND =
+    "22/10/2026. 54kg.\nA. Kumar, 24, M. 111/69 mmHg.\nRx\nPlatifier Nand spray -0-0-1\n2 sprays every nostril for 2 weeks";
+
+  it("measures agreement by words, ignoring line breaks and punctuation", () => {
+    expect(
+      sharedWords("Each tablet contains:\nMefenamic Acid IP 100 mg", "Each tablet contains: Mefenamic Acid IP 100 mg"),
+    ).toBe(1);
+    expect(sharedWords(FIRST, SECOND)).toBeGreaterThan(0.9);
+    expect(sharedWords("Tab Dexamethasone 100 mg daily", SECOND)).toBeLessThan(0.3);
+  });
+
+  it("marks only the value the second reading does not confirm", () => {
+    const reading = expandReading(
+      blank({
+        documentDate: "22/10/2026",
+        medicines: [medicine({ name: "Plutifer Nand spray", frequency: "0-0-1", dose: "2 sprays every nostril" })],
+      }),
+      FIRST,
+      confirmedBy(SECOND),
+    );
+    const m = reading.medications[0];
+    expect([m.name.uncertain, m.frequency.uncertain, m.dose.uncertain]).toEqual([true, false, false]);
+    expect(reading.documentDate?.uncertain).toBe(false);
+  });
+
+  const compactReply = JSON.stringify(
+    blank({ medicines: [medicine({ name: "Plutifer Nand spray", frequency: "0-0-1" })] }),
+  );
+  function ollama(...contents: (string | Error)[]) {
+    const fetchImpl = vi.fn(async () => {
+      const next = contents.shift();
+      if (next instanceof Error) throw next;
+      return new Response(JSON.stringify({ message: { content: next }, eval_count: 10 }), { status: 200 });
+    });
+    const provider = createTwoStepProvider({
+      baseUrl: "http://localhost:11434",
+      visionModel: "vision",
+      textModel: "text",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const read = () =>
+      provider.generate({
+        task: "extract-document",
+        system: "",
+        prompt: "",
+        document: { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" },
+        schema: chatExtractionSchema,
+      });
+    return { fetchImpl, read };
+  }
+
+  it("reads the photo twice and keeps a reading both agree on", async () => {
+    const { fetchImpl, read } = ollama(FIRST, SECOND, compactReply);
+    const { output, meta } = await read();
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(output.readability).toBe("CLEAR");
+    expect(output.medications[0].name.uncertain).toBe(true);
+    expect(output.medications[0].frequency.uncertain).toBe(false);
+    expect(meta).toMatchObject({ steps: 3 });
+  });
+
+  it("fills nothing in when the two readings disagree: the model was inventing", async () => {
+    const invented = "Drug interaction: long acting\nDosage form: oral tablet\nDate of last visit: 20/05/2023";
+    const { fetchImpl, read } = ollama(FIRST, invented, compactReply);
+    await expect(read()).rejects.toThrow(AiError);
+    await expect(ollama(FIRST, invented, compactReply).read()).rejects.toThrow(/two readings of it disagree/);
+    // Refused before the structuring step: no time spent on a reading that cannot be trusted.
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the first reading as before when the check reading fails", async () => {
+    const { read } = ollama(FIRST, new Error("timeout"), compactReply);
+    const { output, meta } = await read();
+    expect(output.medications[0].name.value).toBe("Plutifer Nand spray");
+    expect(output.medications[0].name.uncertain).toBe(false);
+    expect(meta).toMatchObject({ steps: 2 });
   });
 });
