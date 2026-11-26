@@ -202,6 +202,13 @@ export function reviseReading(compact: CompactReading, transcript: string): Comp
     PACK_MARKS.test(transcript)
   )
     out.documentType = "MEDICINE_PACK";
+  // A pack never tells a patient how often or how long to take it ("As directed by the Physician"): a "pack" whose
+  // medicines carry a frequency, a course or a route, or that names a patient, is a prescription.
+  if (
+    out.documentType === "MEDICINE_PACK" &&
+    (out.patientName || out.medicines.some((m) => m.frequency || m.duration || m.route))
+  )
+    out.documentType = "PRESCRIPTION";
   const pack = out.documentType === "MEDICINE_PACK";
 
   const merged: CompactReading["medicines"] = [];

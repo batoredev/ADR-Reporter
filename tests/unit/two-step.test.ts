@@ -144,6 +144,22 @@ describe("two-step local reading: the fixed part", () => {
     expect(performance.now() - started).toBeLessThan(200);
   });
 
+  it("treats a 'pack' that says how to take the medicine as a prescription", () => {
+    const typed = reviseReading(
+      blank({
+        documentType: "MEDICINE_PACK",
+        medicines: [medicine({ name: "Amoxicillin 250 mg tablets", frequency: "T.i.d.", route: "p.o." })],
+      }),
+      "Rx Amoxicillin 250 mg tablets # 42\nT T tablets p.o. T.i.d. X 7 days\nDo Not Refill",
+    );
+    expect(typed.documentType).toBe("PRESCRIPTION");
+    const box = reviseReading(
+      blank({ documentType: "MEDICINE_PACK", medicines: [medicine({ name: "Zifi 200", batch: "KZ4417A" })] }),
+      "Zifi 200\nDosage: As directed by the Physician.\nB.No. KZ4417A",
+    );
+    expect(box.documentType).toBe("MEDICINE_PACK");
+  });
+
   it("never takes a pack size, PIN code or licence number as the batch", () => {
     const batchOf = (batch: string, transcript: string) =>
       reviseReading(

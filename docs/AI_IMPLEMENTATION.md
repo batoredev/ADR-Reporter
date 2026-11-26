@@ -164,6 +164,21 @@ slips on a pack:
 photos with known answers (`ml/vision/render.py --kinds pack`, with `--hard` for poor photos), and reports
 wrong values shown as certain separately from wrong values flagged for checking.
 
+#### Trained structurer (27 November 2026)
+
+`adr-structurer:v2` is Qwen3-0.6B fine-tuned locally (LoRA, 3,200 synthetic examples, 45% packs, about 1 h 46 min
+on an RTX 3050). Load it with `ollama create adr-structurer:v2` from the run's GGUF and Modelfile, then set
+`OLLAMA_TEXT_MODEL=adr-structurer:v2`. Results with the double read and the pack rules:
+
+| | qwen3:4b | adr-structurer:v2 |
+|---|---|---|
+| Reporter's 8 real photos | 81/84, 64-178 s per photo | 82/84, 6-39 s per photo (all 5 pack photos perfect) |
+| 40 drawn packs | brand 22/40, composition 18/40, batch 17/19, expiry 16/17, maker 17/22 (before the rules) | pack type 40/40, brand 34/35, composition 38/40, batch 18/18, expiry 17/17, maker 19/19; 9 s each |
+
+On the drawn packs, v2 showed one wrong value as certain out of about 170 (a composition missing the full stop
+in "eq. to"). The other miss was a misread brand, which was flagged for checking. Synthetic held-out set (brands,
+reactions and wording never trained on): field accuracy 99.6%.
+
 ### The double-read check
 
 A small vision model does not leave a photo it cannot read blank: it invents a plausible document. On drawn

@@ -134,7 +134,9 @@ def main():
     random.seed(args.seed)
     assert torch.cuda.is_available(), "A CUDA GPU is needed."
 
-    base_dir = snapshot_download(BASE, local_dir="ml/artifacts/qwen3-0.6b")
+    # Uses the copy already on disk, so training runs with no internet; downloads only the first time.
+    local = Path("ml/artifacts/qwen3-0.6b")
+    base_dir = str(local) if (local / "model.safetensors").exists() else snapshot_download(BASE, local_dir=str(local))
     tokenizer = AutoTokenizer.from_pretrained(base_dir)
     val = load_rows(f"{args.data}/val.jsonl")
 
