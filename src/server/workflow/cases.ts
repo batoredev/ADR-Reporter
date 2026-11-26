@@ -20,6 +20,7 @@ import type { CurrentUser } from "@/server/auth/current-user";
 import { db } from "@/server/db";
 import { caseAccess } from "./access";
 import { WorkflowError } from "./errors";
+import { captureLearningExamples } from "./learning";
 import { confirmAutoFilledDetails } from "./report-summary";
 
 type Tx = Prisma.TransactionClient;
@@ -224,6 +225,8 @@ export async function submitCase(
     });
     // The single confirmation: everything filled from documents and answers is confirmed by this submission.
     const confirmed = await confirmAutoFilledDetails(tx, user, c.id);
+    // Each document reading, as the reporter confirmed it, de-identified, for teaching the reader.
+    const learned = await captureLearningExamples(tx, c.id);
     const frozen = await tx.adrCase.findUniqueOrThrow({ where: { id: c.id }, include: caseSnapshotInclude });
     await tx.caseVersion.create({
       data: {
@@ -251,6 +254,7 @@ export async function submitCase(
           declaration: true,
           warnings: check.warnings.map((w) => w.message),
           autoFilledConfirmed: confirmed,
+          learningExamples: learned,
         },
       },
       tx,

@@ -142,6 +142,26 @@ and refuses fixture mode. Passing the supplied expectations is evidence about th
 perfect extraction on arbitrary documents. Source quotes and page references are model-produced and still require
 comparison with the original. The image benchmark has now passed with live Ollama credentials as recorded above. PDF coverage is still pending.
 
+### Learning from submitted reports
+
+Every submitted report teaches the local two-step reader. When the reader reads a photo it keeps a de-identified
+copy: the patient's name as initials, and addresses, phone, Aadhaar and record numbers removed. The raw transcript is
+never stored. On submission `captureLearningExamples` (`src/server/workflow/learning.ts`) compares each reading with
+what the reporter finally confirmed and saves one `LearningExample` per document:
+
+- a reading the reporter used and then changed or removed becomes a correction;
+- a medicine's name, batch, manufacturer, dose, route or frequency the reader missed is filled in only when the
+  confirmed value is written in that document's own text, so the reader is never taught something it cannot see;
+- a correction the transcript does not contain (the photo was misread) marks the example not trainable for the
+  structuring step; it is exported separately for checking.
+
+A reviewer's approval marks the report's examples `APPROVED`, and returning the report puts them back to `SUBMITTED`.
+`npm run ml:export-learning` writes approved examples to `ml/data/real/` (gitignored). About one report in five goes
+to a real test set, chosen by a stable hash. `ml/structurer/train.py` mixes the rest into training: each real example
+counts three times, and one the reporter corrected counts six times. The real test set is then scored on its own.
+`LEARN_FROM_REPORTS=off` turns this off. Before turning it on for real patients, confirm that the institution's
+consent and data-protection terms cover using de-identified report data to improve the tool.
+
 ### Report assistant readings of real photos
 
 `samples/chat-extraction-benchmark.json` holds hand-transcribed expectations for the reporter's own test photos

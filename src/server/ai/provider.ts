@@ -71,7 +71,13 @@ export function configuredProviders(env: Env = process.env): AiProvider[] {
       for (const model of models)
         providers.push(
           textModel
-            ? createTwoStepProvider({ baseUrl, visionModel: model, textModel, numCtx })
+            ? createTwoStepProvider({
+                baseUrl,
+                visionModel: model,
+                textModel,
+                numCtx,
+                keepForLearning: env.LEARN_FROM_REPORTS?.trim().toLowerCase() !== "off",
+              })
             : createOllamaProvider({ baseUrl, apiKey, model, numCtx }),
         );
     } else if (name === "anthropic" && ALLOW_PAID_AI) {

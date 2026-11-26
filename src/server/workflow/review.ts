@@ -12,6 +12,7 @@ import { ddmmyyyy, generatePvpiPdf } from "@/server/pdf/pvpi-form";
 import { saveFile } from "@/server/storage";
 import { loadCase } from "./cases";
 import { WorkflowError } from "./errors";
+import { setLearningStatus } from "./learning";
 
 const json = (v: unknown) => v as Prisma.InputJsonValue;
 const CHECKLIST_KEYS = Object.values(ChecklistItemKey);
@@ -309,6 +310,8 @@ export async function approveCase(user: CurrentUser, caseId: string) {
       await tx.reviewDecision.create({
         data: { caseId: c.id, versionNo: reviewedVersion, reviewerId: user.id, decision: "APPROVE" },
       });
+      // A reviewer-approved report's document readings become training data for the reader.
+      await setLearningStatus(tx, c.id, true);
       await writeAudit(
         {
           institutionId: user.institutionId,
@@ -351,6 +354,7 @@ export async function returnCase(user: CurrentUser, caseId: string, reason: stri
         reason: text.slice(0, 2000),
       },
     });
+    await setLearningStatus(tx, c.id, false);
     await writeAudit(
       {
         institutionId: user.institutionId,

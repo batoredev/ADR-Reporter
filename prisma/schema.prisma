@@ -240,6 +240,7 @@ model AdrCase {
   auditLogs           AuditLog[]
   reportChat          ReportChat?
   extractionJobs      DocumentExtractionJob[]
+  learningExamples    LearningExample[]
 
   @@unique([institutionId, caseNumber])
   @@index([institutionId, status])
@@ -685,6 +686,7 @@ model ExtractionRun {
   document    UploadedDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
   requestedBy User             @relation(fields: [requestedById], references: [id])
   items       ExtractedItem[]
+  learning    LearningExample?
 
   @@index([documentId])
 }
@@ -742,6 +744,44 @@ model FieldProvenance {
   verifiedBy    User?             @relation(fields: [verifiedById], references: [id])
 
   @@unique([caseId, fieldPath])
+}
+
+// ---------------------------------------------------------------------------
+// Learning from submitted reports: one de-identified example per document reading.
+// The transcript has the patient's name as initials and contact details removed;
+// the target is the reading as the reporter finally confirmed it. Examples become
+// training data once a reviewer approves the report (LEARN_FROM_REPORTS=off stops it).
+// ---------------------------------------------------------------------------
+
+enum LearningStatus {
+  SUBMITTED
+  APPROVED
+  EXCLUDED
+}
+
+model LearningExample {
+  id           String         @id @default(cuid())
+  caseId       String
+  runId        String         @unique
+  documentType String
+  textModel    String
+  transcript   String
+  // The model's reading and the corrected one, both in the compact form the reader writes.
+  reading      Json
+  target       Json
+  // What the reporter changed: [{ path, from, to, kind }].
+  corrections  Json
+  // False when a correction could not be found in the transcript (a misread photo, not a structuring slip).
+  trainable    Boolean
+  status       LearningStatus @default(SUBMITTED)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  adrCase AdrCase       @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  run     ExtractionRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@index([caseId])
+  @@index([status, trainable])
 }
 
 // ---------------------------------------------------------------------------

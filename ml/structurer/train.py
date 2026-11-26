@@ -27,10 +27,12 @@ BASE = "Qwen/Qwen3-0.6B"
 PROMPT = json.loads(Path("ml/structurer/prompt.json").read_text(encoding="utf-8"))
 
 
+# Ollama's JSON grammar writes object keys in alphabetical order whatever the schema says, so the
+# answers are taught in that order; otherwise the grammar pushes the model off what it learned.
 def messages(transcript, target=None):
     out = [{"role": "system", "content": PROMPT["system"]}, {"role": "user", "content": PROMPT["userPrefix"] + transcript}]
     if target is not None:
-        out.append({"role": "assistant", "content": json.dumps(target, ensure_ascii=False, separators=(",", ":"))})
+        out.append({"role": "assistant", "content": json.dumps(target, ensure_ascii=False, separators=(",", ":"), sort_keys=True)})
     return out
 
 
@@ -90,6 +92,8 @@ def check(model, tokenizer, rows, limit):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="ml/data/structurer")
+    parser.add_argument("--real", default="ml/data/real", help="examples from submitted reports (npm run ml:export-learning)")
+    parser.add_argument("--real-weight", type=int, default=3, help="times each real example is seen; corrected ones twice that")
     parser.add_argument("--runs", default="ml/runs/structurer")
     parser.add_argument("--run", default=None)
     parser.add_argument("--epochs", type=float, default=1.0)
@@ -111,11 +115,20 @@ def main():
     if args.check_only:
         model = AutoModelForCausalLM.from_pretrained(Path(args.run) / "merged", dtype=torch.bfloat16).cuda()
         print(json.dumps(check(model, tokenizer, val, args.check), indent=2))
+        hard_path = Path(f"{args.data}/hard.jsonl")
+        if hard_path.exists():
+            print("Held-out hard:", json.dumps(check(model, tokenizer, load_rows(hard_path), args.check), indent=2))
         return
 
     run = Path(args.runs) / time.strftime("%Y%m%d-%H%M%S")
     run.mkdir(parents=True, exist_ok=True)
     train = load_rows(f"{args.data}/train.jsonl")
+    real_path = Path(f"{args.real}/train.jsonl")
+    real = load_rows(real_path) if real_path.exists() else []
+    # Real reports teach what synthetic data cannot; the ones a reporter had to correct, most of all.
+    for row in real:
+        train += [row] * (args.real_weight * (2 if row.get("corrected") else 1))
+    print(f"Training on {len(train)} examples ({len(real)} from real reports)", flush=True)
     model = AutoModelForCausalLM.from_pretrained(base_dir, dtype=torch.bfloat16).cuda()
     before = check(model, tokenizer, val, 20)
     print("Before training:", json.dumps(before), flush=True)
@@ -152,6 +165,12 @@ def main():
     merged.save_pretrained(run / "merged", safe_serialization=True)
     tokenizer.save_pretrained(run / "merged")
     result = check(merged, tokenizer, val, args.check)
+    hard_path = Path(f"{args.data}/hard.jsonl")
+    if hard_path.exists():
+        result["hard"] = check(merged, tokenizer, load_rows(hard_path), args.check)
+    real_test = Path(f"{args.real}/test.jsonl")
+    if real_test.exists() and real_test.stat().st_size:
+        result["real"] = check(merged, tokenizer, load_rows(real_test), 1000)
     result |= {"base": BASE, "before": before, "train_examples": len(train), "epochs": args.epochs,
                "seconds": round(time.time() - started), "data": "synthetic only; real photos are the test"}
     (run / "result.json").write_text(json.dumps(result, indent=2))
