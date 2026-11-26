@@ -39,7 +39,8 @@ const list = (value: string | undefined) =>
  *   AI_PROVIDER       none | fixture | a comma list such as "gemini,ollama,anthropic"
  *                     (default: ollama, gemini, then anthropic if ALLOW_PAID_AI)
  *   GEMINI_API_KEY    enables Gemini; GEMINI_MODEL is a comma list tried in turn
- *   OLLAMA_API_KEY    enables Ollama Cloud; OLLAMA_BASE_URL points at another Ollama server instead
+ *   OLLAMA_API_KEY    enables Ollama Cloud; OLLAMA_BASE_URL points at another Ollama server instead;
+ *                     OLLAMA_NUM_CTX optionally sets the context window (for a local model on a small GPU)
  *   ANTHROPIC_API_KEY enables Claude; ANTHROPIC_MODEL (default claude-sonnet-5-5), AI_EFFORT optional
  *
  * A provider without its key is skipped, never an error.
@@ -61,7 +62,9 @@ export function configuredProviders(env: Env = process.env): AiProvider[] {
       const baseUrl = env.OLLAMA_BASE_URL?.trim() || (apiKey ? OLLAMA_CLOUD_URL : "");
       if (!baseUrl) continue;
       const models = list(env.OLLAMA_MODEL).length ? list(env.OLLAMA_MODEL) : [DEFAULT_OLLAMA_MODEL];
-      for (const model of models) providers.push(createOllamaProvider({ baseUrl, apiKey, model }));
+      // A smaller context lets a local model fit in a small GPU (a 65k default on a 4 GB card mostly runs on CPU).
+      const numCtx = Number(env.OLLAMA_NUM_CTX) > 0 ? Math.floor(Number(env.OLLAMA_NUM_CTX)) : undefined;
+      for (const model of models) providers.push(createOllamaProvider({ baseUrl, apiKey, model, numCtx }));
     } else if (name === "anthropic" && ALLOW_PAID_AI) {
       const apiKey = env.ANTHROPIC_API_KEY?.trim() || env.AI_API_KEY?.trim();
       if (!apiKey) continue;

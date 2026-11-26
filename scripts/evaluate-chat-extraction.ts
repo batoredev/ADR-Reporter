@@ -106,6 +106,7 @@ async function main() {
   if (!dir) throw new Error("Give the photo folder with --dir=... or ADR_SAMPLES_DIR.");
   const runs = Math.max(1, Number(arg("runs") ?? 1));
   const only = arg("only");
+  const direct = process.argv.includes("--direct");
   const providers = configuredProviders();
   if (!providers.length || providers.some((p) => p.tier === "test"))
     throw new Error("Live evaluation needs OLLAMA_API_KEY or GEMINI_API_KEY.");
@@ -115,55 +116,59 @@ async function main() {
   let passed = 0,
     total = 0;
   const failures: string[] = [];
-  await Promise.all(
-    cases
-      .filter((c) => !only || c.id === only)
-      .flatMap((sample) =>
-        Array.from({ length: runs }, async (_, attempt) => {
-          const label = `${sample.id}${runs > 1 ? ` #${attempt + 1}` : ""}`;
-          const started = Date.now();
-          try {
-            const bytes = new Uint8Array(await readFile(path.join(dir, sample.file)));
-            const type = sniffType(bytes);
-            if (!type) throw new Error(`${sample.file} is not a JPG, PNG or PDF.`);
-            const outcome = await generateWithFallback({
-              task: "extract-document",
-              system: EXTRACTION_INSTRUCTIONS + CHAT_EXTRA_INSTRUCTIONS,
-              prompt: "Read this document and extract what it says.",
-              document: { bytes, mimeType: type.mimeType as "image/jpeg" | "image/png" | "application/pdf" },
-              schema: chatExtractionSchema,
-              maxOutputTokens: 16000,
-              validateOutput: (o) => {
-                if (o.readability === "UNREADABLE") throw new AiError("Unreadable.");
-              },
-            });
-            const reviewed = reviewExtraction(outcome.output);
-            const output = { ...outcome.output, ...reviewed.output } as ChatExtraction;
-            const checks = score(output, sample);
-            const bad = checks.filter((c) => !c.passed);
-            passed += checks.length - bad.length;
-            total += checks.length;
-            console.log(
-              `${bad.length ? "FAIL" : "PASS"} ${label}: ${checks.length - bad.length}/${checks.length} (${((Date.now() - started) / 1000).toFixed(0)}s, ${outcome.model})`,
-            );
-            for (const b of bad) {
-              const line = `  ${b.field}: expected ${JSON.stringify(b.expected)}, got ${JSON.stringify(b.actual)}`;
-              console.log(line);
-              failures.push(`${label} ${line.trim()}`);
-            }
-            await writeFile(
-              `${out}/${sample.id}${runs > 1 ? `-${attempt + 1}` : ""}.json`,
-              JSON.stringify({ checks, issues: reviewed.issues, output }, null, 2),
-            );
-          } catch (error) {
-            total += 1;
-            const message = error instanceof Error ? error.message : String(error);
-            failures.push(`${label}: ${message}`);
-            console.log(`ERROR ${label}: ${message}`);
-          }
-        }),
-      ),
-  );
+  // A local model reads one photo at a time; cloud models in parallel.
+  const jobs = cases
+    .filter((c) => !only || c.id === only)
+    .flatMap((sample) => Array.from({ length: runs }, (_, attempt) => ({ sample, attempt })));
+  const runOne = async ({ sample, attempt }: (typeof jobs)[number]) => {
+    const label = `${sample.id}${runs > 1 ? ` #${attempt + 1}` : ""}`;
+    const started = Date.now();
+    try {
+      const bytes = new Uint8Array(await readFile(path.join(dir, sample.file)));
+      const type = sniffType(bytes);
+      if (!type) throw new Error(`${sample.file} is not a JPG, PNG or PDF.`);
+      const request = {
+        task: "extract-document" as const,
+        system: EXTRACTION_INSTRUCTIONS + CHAT_EXTRA_INSTRUCTIONS,
+        prompt: "Read this document and extract what it says.",
+        document: { bytes, mimeType: type.mimeType as "image/jpeg" | "image/png" | "application/pdf" },
+        schema: chatExtractionSchema,
+        maxOutputTokens: Number(arg("max-tokens")) || 16000,
+        validateOutput: (o: ChatExtraction) => {
+          if (o.readability === "UNREADABLE") throw new AiError("Unreadable.");
+        },
+      };
+      // --direct: the first configured model without the app's time limits (slow local models).
+      const outcome = direct
+        ? { ...(await providers[0].generate(request)), model: providers[0].model }
+        : await generateWithFallback(request);
+      const reviewed = reviewExtraction(outcome.output);
+      const output = { ...outcome.output, ...reviewed.output } as ChatExtraction;
+      const checks = score(output, sample);
+      const bad = checks.filter((c) => !c.passed);
+      passed += checks.length - bad.length;
+      total += checks.length;
+      console.log(
+        `${bad.length ? "FAIL" : "PASS"} ${label}: ${checks.length - bad.length}/${checks.length} (${((Date.now() - started) / 1000).toFixed(0)}s, ${outcome.model})`,
+      );
+      for (const b of bad) {
+        const line = `  ${b.field}: expected ${JSON.stringify(b.expected)}, got ${JSON.stringify(b.actual)}`;
+        console.log(line);
+        failures.push(`${label} ${line.trim()}`);
+      }
+      await writeFile(
+        `${out}/${sample.id}${runs > 1 ? `-${attempt + 1}` : ""}.json`,
+        JSON.stringify({ checks, issues: reviewed.issues, output }, null, 2),
+      );
+    } catch (error) {
+      total += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${label}: ${message}`);
+      console.log(`ERROR ${label}: ${message}`);
+    }
+  };
+  if (direct) for (const job of jobs) await runOne(job);
+  else await Promise.all(jobs.map(runOne));
   console.log(`\nScore: ${passed}/${total} expectations (${((100 * passed) / Math.max(1, total)).toFixed(1)}%).`);
   await writeFile(`${out}/summary.txt`, `${passed}/${total}\n${failures.join("\n")}\n`);
   if (passed !== total) process.exitCode = 1;

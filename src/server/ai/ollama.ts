@@ -27,6 +27,8 @@ export function createOllamaProvider(config: {
   baseUrl: string;
   apiKey?: string;
   model: string;
+  /** Context window in tokens; the server's default when unset. */
+  numCtx?: number;
   fetchImpl?: typeof fetch;
 }): AiProvider {
   const doFetch = config.fetchImpl ?? fetch;
@@ -56,7 +58,11 @@ export function createOllamaProvider(config: {
             // Cloud does not support constrained structured outputs. Supply the
             // schema in the prompt and validate locally; invalid JSON falls back.
             ...(!cloud ? { format: jsonSchema } : {}),
-            options: { temperature: 0, num_predict: maxOutputTokens ?? 8192 },
+            options: {
+              temperature: 0,
+              num_predict: maxOutputTokens ?? 8192,
+              ...(config.numCtx ? { num_ctx: config.numCtx } : {}),
+            },
             messages: [
               {
                 role: "system",
