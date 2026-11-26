@@ -158,6 +158,26 @@ describe("two-step local reading: the fixed part", () => {
       "Zifi 200\nDosage: As directed by the Physician.\nB.No. KZ4417A",
     );
     expect(box.documentType).toBe("MEDICINE_PACK");
+    // A pack size in a dosing field, or "For I.M./I.V. use only" as a route, does not make a pack a prescription.
+    const front = reviseReading(
+      blank({ documentType: "MEDICINE_PACK", medicines: [medicine({ name: "Dolo 650", duration: "15 Tablets" })] }),
+      "Rx Paracetamol Tablets IP\nDolo 650\n15 Tablets",
+    );
+    expect(front.documentType).toBe("MEDICINE_PACK");
+    const vial = reviseReading(
+      blank({ documentType: "MEDICINE_PACK", medicines: [medicine({ name: "Monocef 1 g", route: "I.M./I.V." })] }),
+      "Monocef 1 g\nFor I.M./I.V. use only",
+    );
+    expect(vial.documentType).toBe("MEDICINE_PACK");
+    // Packaging text is never the name.
+    const back = reviseReading(
+      blank({
+        documentType: "MEDICINE_PACK",
+        medicines: [medicine({ name: "Excipients q.s.", composition: "Aspirin IP 75 mg" })],
+      }),
+      "Each film coated tablet contains:\nAspirin IP 75 mg\nExcipients q.s.",
+    );
+    expect(back.medicines[0]).toMatchObject({ name: null, composition: "Aspirin IP 75 mg" });
   });
 
   it("never takes a pack size, PIN code or licence number as the batch", () => {

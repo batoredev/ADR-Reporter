@@ -202,11 +202,14 @@ export function reviseReading(compact: CompactReading, transcript: string): Comp
     PACK_MARKS.test(transcript)
   )
     out.documentType = "MEDICINE_PACK";
-  // A pack never tells a patient how often or how long to take it ("As directed by the Physician"): a "pack" whose
-  // medicines carry a frequency, a course or a route, or that names a patient, is a prescription.
+  // A pack never gives a dosing schedule ("Dosage: As directed by the Physician"): a "pack" with one (OD, BD, TDS,
+  // 1-0-1, T.i.d., SOS...) or a patient's name is a prescription. A route alone ("For I.M./I.V. use only") or a pack
+  // size the model put in a dosing field ("15 Tablets") is printed on packs too, so it does not count.
+  const SCHEDULE =
+    /^(?:od|bd|tds|tid|qid|hs|sos|stat|q\s*\d+\s*h|\d\s*-\s*\d\s*-\s*\d|[tbq]\.?\s*i\.?\s*d\.?|once|twice|thrice)\b/i;
   if (
     out.documentType === "MEDICINE_PACK" &&
-    (out.patientName || out.medicines.some((m) => m.frequency || m.duration || m.route))
+    (out.patientName || out.medicines.some((m) => m.frequency && SCHEDULE.test(m.frequency.trim())))
   )
     out.documentType = "PRESCRIPTION";
   const pack = out.documentType === "MEDICINE_PACK";
@@ -252,6 +255,14 @@ export function reviseReading(compact: CompactReading, transcript: string): Comp
   if (pack && out.medicines.length === 1) {
     const m = out.medicines[0];
     const plain = (s: string) => s.replace(/[®™]/g, "").replace(/\s+/g, " ").trim();
+    // Packaging text is never the name ("Excipients q.s.", "Each tablet contains:", "Store below 30°C").
+    if (
+      m.name &&
+      /^(?:excipients?|composition|each\b|contains|schedule|mfg|mfd|batch|b\.\s*no|lot\b|store|keep|dosage|colou?r|approved|exp|use before|m\.?r\.?p)/i.test(
+        m.name.trim(),
+      )
+    )
+      m.name = null;
     // Brand and generic text read the wrong way round.
     if (genericness(m.name) === 2 && m.composition && genericness(m.composition) < 2)
       [m.name, m.composition] = [m.composition, m.name];
