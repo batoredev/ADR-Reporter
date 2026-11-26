@@ -58,12 +58,13 @@ def values(target):
             for item in v:
                 out += [x for x in item.values() if isinstance(x, str)]
         elif isinstance(v, str):
-            out += [x for x in v.split("; ") if x]
-    return out
+            out += [x for x in re.split(r"; |\. ", v) if x]
+    # Readings a reader is expected to make rather than copy ("T T tablets" is 2 tablets) are not text to find.
+    return [x for x in out if not re.fullmatch(r"[12] (tablet|capsule)s?", x)]
 
 
 def squash(s):
-    return re.sub(r"\s+", " ", s.lower()).strip()
+    return re.sub(r"\s+", " ", s.replace("®", "").lower()).strip()
 
 
 def main():

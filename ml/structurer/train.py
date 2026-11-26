@@ -19,8 +19,11 @@ import time
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 from huggingface_hub import snapshot_download
-from peft import LoraConfig, get_peft_model
+import urllib.request
+
+from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 BASE = "Qwen/Qwen3-0.6B"
@@ -49,6 +52,28 @@ def encode(tokenizer, row, max_len):
     # Learn the answer only, not the instructions or the transcript.
     labels = [-100] * min(len(prompt_ids), len(ids)) + ids[len(prompt_ids):]
     return torch.tensor(ids), torch.tensor(labels[: len(ids)])
+
+
+def answer_loss(model, ids, labels):
+    """Loss on the answer only, computing predictions for the answer tokens alone: the full-vocabulary
+    predictions for every prompt token would take about 1 GB on their own, too much for a 4 GB card."""
+    keep = int((labels != -100).sum()) + 1
+    logits = model(input_ids=ids[None].cuda(), logits_to_keep=keep).logits[0, :-1].float()
+    return F.cross_entropy(logits, ids[-(keep - 1):].cuda())
+
+
+def free_gpu():
+    """Asks the local Ollama to unload its models, so training has the whole card."""
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/ps", timeout=5) as r:
+            loaded = [m["name"] for m in json.loads(r.read())["models"]]
+        for name in loaded:
+            body = json.dumps({"model": name, "keep_alive": 0}).encode()
+            urllib.request.urlopen(urllib.request.Request("http://localhost:11434/api/generate", body), timeout=30).read()
+        if loaded:
+            print("Unloaded from Ollama:", ", ".join(loaded), flush=True)
+    except OSError:
+        pass
 
 
 def load_rows(path):
@@ -103,6 +128,7 @@ def main():
     parser.add_argument("--check", type=int, default=60)
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--resume", default=None, help="a run folder with a checkpoint to continue from")
     args = parser.parse_args()
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -120,8 +146,11 @@ def main():
             print("Held-out hard:", json.dumps(check(model, tokenizer, load_rows(hard_path), args.check), indent=2))
         return
 
-    run = Path(args.runs) / time.strftime("%Y%m%d-%H%M%S")
+    free_gpu()
+    run = Path(args.resume) if args.resume else Path(args.runs) / time.strftime("%Y%m%d-%H%M%S")
     run.mkdir(parents=True, exist_ok=True)
+    state_path = run / "checkpoint" / "state.json"
+    done_updates = json.loads(state_path.read_text())["update"] if args.resume and state_path.exists() else 0
     train = load_rows(f"{args.data}/train.jsonl")
     real_path = Path(f"{args.real}/train.jsonl")
     real = load_rows(real_path) if real_path.exists() else []
@@ -130,25 +159,33 @@ def main():
         train += [row] * (args.real_weight * (2 if row.get("corrected") else 1))
     print(f"Training on {len(train)} examples ({len(real)} from real reports)", flush=True)
     model = AutoModelForCausalLM.from_pretrained(base_dir, dtype=torch.bfloat16).cuda()
-    before = check(model, tokenizer, val, 20)
+    before = check(model, tokenizer, val, 20) if not done_updates else {"resumed_at_update": done_updates}
     print("Before training:", json.dumps(before), flush=True)
     model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
-    model = get_peft_model(model, LoraConfig(
-        r=16, lora_alpha=32, lora_dropout=0.05, task_type="CAUSAL_LM",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-    ))
+    if done_updates:
+        model = PeftModel.from_pretrained(model, run / "checkpoint", is_trainable=True)
+        print(f"Resuming after update {done_updates}", flush=True)
+    else:
+        model = get_peft_model(model, LoraConfig(
+            r=16, lora_alpha=32, lora_dropout=0.05, task_type="CAUSAL_LM",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        ))
     model.print_trainable_parameters()
     optimiser = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=args.lr, weight_decay=0.0)
     order = [i % len(train) for i in range(int(len(train) * args.epochs))]
     random.shuffle(order)
     steps = math.ceil(len(order) / args.accumulate)
     schedule = torch.optim.lr_scheduler.LambdaLR(optimiser, lambda s: min(1.0, (s + 1) / 20) * max(0.0, 1 - s / steps))
+    for _ in range(done_updates):
+        schedule.step()
     model.train()
     started, running = time.time(), 0.0
     for step, index in enumerate(order, 1):
+        if step <= done_updates * args.accumulate:
+            continue  # the same seeded order, so a resumed run skips exactly what was done
         ids, labels = encode(tokenizer, train[index], args.max_len)
-        loss = model(input_ids=ids[None].cuda(), labels=labels[None].cuda()).loss / args.accumulate
+        loss = answer_loss(model, ids, labels) / args.accumulate
         loss.backward()
         running += loss.item()
         if step % args.accumulate == 0 or step == len(order):
@@ -160,6 +197,9 @@ def main():
             if update % 10 == 0:
                 print(f"update {update}/{steps} loss {running / 10:.4f} {time.time() - started:.0f}s", flush=True)
                 running = 0.0
+            if update % 50 == 0 and update < steps:  # a crash or a busy GPU never costs more than 50 updates
+                model.save_pretrained(run / "checkpoint")
+                state_path.write_text(json.dumps({"update": update}))
     model.save_pretrained(run / "adapter")
     merged = model.merge_and_unload()
     merged.save_pretrained(run / "merged", safe_serialization=True)

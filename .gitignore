@@ -70,3 +70,5 @@ next-env.d.ts
 /ml/data/
 /ml/runs/
 /ml/artifacts/
+__pycache__/
+*.pyc
