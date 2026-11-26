@@ -216,6 +216,29 @@ describe("two-step local reading: the fixed part", () => {
     ]);
   });
 
+  it("hides a name found in the text even when the model did not report it, in every value and quote", () => {
+    const transcript =
+      "Patient Name: Ramesh Iyer Age: 40\nDate: 12/11/2026\nRamesh Iyer complains of rash\nTab Cefixime 200mg BD x 5d";
+    const reading = expandReading(
+      blank({
+        patientName: null,
+        documentDate: "12/11/2026",
+        reactionDetails: "Ramesh Iyer complains of rash",
+        medicines: [medicine({ name: "Tab Cefixime 200mg", frequency: "BD" })],
+      }),
+      transcript,
+    );
+    expect(JSON.stringify(reading)).not.toMatch(/Ramesh|Iyer/i);
+    expect(reading.patient.initials.value).toBe("R.I.");
+    expect(reading.reaction.description.value).toBe("R. I. complains of rash");
+    // "c/o" in an address means "care of": it is never read as a diagnosis.
+    const address = reviseReading(
+      blank({ medicines: [medicine({ name: "Tab Cefixime 200mg" })] }),
+      "c/o Suresh Nair\nRx\nTab Cefixime 200mg",
+    );
+    expect(address.diagnosis).toBeNull();
+  });
+
   it("marks a value no transcript line supports as uncertain", () => {
     expect(sourceLine(["Batch No.: A7AEZ002"], "ZZ999")).toBeNull();
     const reading = expandReading(blank({ medicines: [medicine({ name: "Augmentin 625" })] }), FLUTIFER_RX);

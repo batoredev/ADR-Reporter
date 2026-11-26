@@ -187,12 +187,10 @@ export function reviseReading(compact: CompactReading, transcript: string): Comp
   }
 
   if (!out.diagnosis && ["PRESCRIPTION", "CLINICAL_NOTE", "DISCHARGE_SUMMARY"].includes(out.documentType)) {
-    const at = lines.findIndex((l) => /\b(?:clinical description|diagnosis|dx|impression|c\/o)\b\s*[:-]?/i.test(l));
+    // Not "c/o": it also means "care of" before a name in an address.
+    const at = lines.findIndex((l) => /\b(?:clinical description|diagnosis|dx|impression)\b\s*[:-]?/i.test(l));
     if (at >= 0) {
-      const sameLine = lines[at].replace(
-        /^.*?\b(?:clinical description|diagnosis|dx|impression|c\/o)\b\s*[:-]?\s*/i,
-        "",
-      );
+      const sameLine = lines[at].replace(/^.*?\b(?:clinical description|diagnosis|dx|impression)\b\s*[:-]?\s*/i, "");
       const written = (sameLine.trim() || lines[at + 1] || "")
         .split(VITALS)[0]
         .replace(/[\s,;:-]+$/, "")
@@ -237,13 +235,49 @@ export function initialsOf(name: string | null | undefined): string | null {
     .join(".")}.`;
 }
 
-/** Hides a patient's name in a quote, leaving initials ("A. Kumar, 24, M" → "A. K., 24, M"). */
-function withoutName(quote: string | null, name: string | null): string | null {
-  if (!quote || !name) return quote;
-  let out = quote;
-  for (const word of name.match(/[A-Za-z]{2,}/g) ?? [])
-    out = out.replace(new RegExp(`\\b${word}\\b`, "gi"), `${word[0].toUpperCase()}.`);
-  return out;
+const NOT_NAME_WORDS = new Set(
+  "age gender sex yrs yr years year months old name patient pt mr mrs ms miss master baby dr address date wt weight male female".split(
+    " ",
+  ),
+);
+/**
+ * The words of the patient's name, found in the text itself ("Name: ...", "Patient Name: ...", "Pt: ...",
+ * "Mr./Mrs. ...", "A. Kumar, 24, M") as well as the model's reading, so hiding the name never depends on the model.
+ */
+export function patientNameWords(transcript: string, modelName: string | null): string[] {
+  const found = [modelName ?? ""];
+  for (const line of transcript.split("\n")) {
+    const labelled = line.match(/\b(?:patient\s*name|name|pt|patient)\s*[:.-]\s*([A-Za-z][A-Za-z .']{1,40})/i);
+    if (labelled) found.push(labelled[1].split(/\b(?:age|sex|gender|address)\b/i)[0]);
+    const titled = line.match(/\b(?:mr|mrs|ms|miss|master|baby)\.?\s+([A-Za-z][A-Za-z .']{1,40})/i);
+    if (titled) found.push(titled[1]);
+    // A name written before the age: "A. Kumar, 24, M".
+    const beforeAge = line.match(/^\s*([A-Z][A-Za-z.]*(?:\s+[A-Z][A-Za-z.]*){0,2})\s*,\s*\d{1,3}\b/);
+    if (beforeAge) found.push(beforeAge[1]);
+  }
+  return [
+    ...new Set(
+      found
+        .flatMap((n) => n.match(/[A-Za-z]{2,}/g) ?? [])
+        .filter((w) => !NOT_NAME_WORDS.has(w.toLowerCase()))
+        .map((w) => w.toLowerCase()),
+    ),
+  ];
+}
+
+/** Replaces every patient-name word in every string of a reading with its initial ("Kumar" → "K."). */
+function hideNames<T>(value: T, words: string[]): T {
+  if (!words.length) return value;
+  const pattern = new RegExp(`\\b(${words.map((w) => w.replace(/[^a-z]/g, "")).join("|")})\\b`, "gi");
+  const walk = (v: unknown): unknown =>
+    typeof v === "string"
+      ? v.replace(pattern, (w) => `${w[0].toUpperCase()}.`)
+      : Array.isArray(v)
+        ? v.map(walk)
+        : v && typeof v === "object"
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]))
+          : v;
+  return walk(value) as T;
 }
 
 /** A date as written, as an ISO partial date: day first in India, month first on a plainly US document. */
@@ -276,20 +310,20 @@ const none: Value = { value: null, sourceText: null, uncertain: false, approxima
 export function expandReading(compact: CompactReading, transcript: string) {
   const lines = transcript.split("\n");
   const us = /\b[A-Z]{2}\s+\d{5}\b|\bD\.?E\.?A\.?\b/.test(transcript);
-  const name = compact.patientName;
+  const nameWords = patientNameWords(transcript, compact.patientName);
   const read = (value: string | null | undefined, quoteFrom: string | null | undefined = value): Value => {
     const v = value?.trim() || null;
     if (!v) return none;
-    const quote = withoutName(sourceLine(lines, quoteFrom ?? v), name);
+    const quote = sourceLine(lines, quoteFrom ?? v);
     return { value: v, sourceText: quote, uncertain: !quote, approximate: false };
   };
   const date = (written: string | null | undefined): Value => {
     const parsed = isoDate(written, us);
     if (!parsed) return written?.trim() ? { ...read(written), value: null, uncertain: true } : none;
-    const quote = withoutName(sourceLine(lines, written), name);
+    const quote = sourceLine(lines, written);
     return { value: parsed.value, sourceText: quote, uncertain: parsed.uncertain || !quote, approximate: false };
   };
-  const initials = initialsOf(name);
+  const initials = initialsOf(compact.patientName ?? (nameWords.length ? nameWords.join(" ") : null));
   const clinical = ["PRESCRIPTION", "CLINICAL_NOTE", "DISCHARGE_SUMMARY"].includes(compact.documentType);
   const medications = compact.medicines.map((m) => {
     const mfg = isoDate(m.mfgDate);
@@ -298,7 +332,7 @@ export function expandReading(compact: CompactReading, transcript: string) {
     if (mfg && expiry.value && mfg.value > expiry.value)
       expiry = {
         value: mfg.value,
-        sourceText: withoutName(sourceLine(lines, m.mfgDate), name),
+        sourceText: sourceLine(lines, m.mfgDate),
         uncertain: true,
         approximate: false,
       };
@@ -333,41 +367,49 @@ export function expandReading(compact: CompactReading, transcript: string) {
     };
   });
   const genderWord = { MALE: "M", FEMALE: "F", OTHER: "other" } as const;
-  return {
-    documentType: compact.documentType,
-    readability: transcript.length < 15 ? ("UNREADABLE" as const) : ("CLEAR" as const),
-    patient: {
-      initials: initials ? { value: initials, sourceText: initials, uncertain: false, approximate: false } : none,
-      age: read(compact.age?.replace(/[^\d.]/g, "") || null, compact.age),
-      ageUnit: compact.age && compact.ageUnit ? { ...read(compact.age), value: compact.ageUnit } : none,
-      gender: compact.gender ? { ...read(genderWord[compact.gender]), value: compact.gender } : none,
-      weightKg: read(compact.weightKg?.replace(/[^\d.]/g, "") || null, compact.weightKg),
+  // Every value and quote passes through one name filter, so no field can carry the patient's name.
+  return hideNames(
+    {
+      documentType: compact.documentType,
+      readability: transcript.length < 15 ? ("UNREADABLE" as const) : ("CLEAR" as const),
+      patient: {
+        initials: initials ? { value: initials, sourceText: initials, uncertain: false, approximate: false } : none,
+        age: read(compact.age?.replace(/[^\d.]/g, "") || null, compact.age),
+        ageUnit: compact.age && compact.ageUnit ? { ...read(compact.age), value: compact.ageUnit } : none,
+        gender: compact.gender ? { ...read(genderWord[compact.gender]), value: compact.gender } : none,
+        weightKg: read(compact.weightKg?.replace(/[^\d.]/g, "") || null, compact.weightKg),
+      },
+      reaction: {
+        terms: read(compact.reaction),
+        startDate: date(compact.reactionStartDate),
+        stopDate: date(compact.reactionStopDate),
+        description: read(compact.reactionDetails),
+        management: read(compact.reactionTreatment),
+      },
+      medicalHistory: read(compact.medicalHistory),
+      investigations: compact.tests.map((t) => ({
+        testName: read(t.name),
+        result: read(t.result),
+        date: date(t.date),
+      })),
+      medications: medications.map(({ composition: _composition, ...m }) => m),
+      documentDate: compact.documentDate ? date(compact.documentDate) : null,
+      extraFields: medications.flatMap((m, index) =>
+        m.composition
+          ? [
+              {
+                entity: "medicine" as const,
+                medicationIndex: index,
+                field: "composition" as const,
+                reading: read(m.composition),
+              },
+            ]
+          : [],
+      ),
+      documentNotes: null,
     },
-    reaction: {
-      terms: read(compact.reaction),
-      startDate: date(compact.reactionStartDate),
-      stopDate: date(compact.reactionStopDate),
-      description: read(compact.reactionDetails),
-      management: read(compact.reactionTreatment),
-    },
-    medicalHistory: read(compact.medicalHistory),
-    investigations: compact.tests.map((t) => ({ testName: read(t.name), result: read(t.result), date: date(t.date) })),
-    medications: medications.map(({ composition: _composition, ...m }) => m),
-    documentDate: compact.documentDate ? date(compact.documentDate) : null,
-    extraFields: medications.flatMap((m, index) =>
-      m.composition
-        ? [
-            {
-              entity: "medicine" as const,
-              medicationIndex: index,
-              field: "composition" as const,
-              reading: read(m.composition),
-            },
-          ]
-        : [],
-    ),
-    documentNotes: null,
-  };
+    nameWords,
+  );
 }
 
 interface Config {
