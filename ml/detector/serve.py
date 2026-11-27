@@ -15,6 +15,7 @@ import base64
 import io
 import json
 import threading
+import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -25,6 +26,12 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.transforms.functional import to_tensor
 
 MAX_BYTES = 15 * 1024 * 1024
+# A phone photo is about 12 million pixels. A small, highly compressible file can claim far more and fill memory
+# when decoded, so the size is checked from the header before decoding, and Pillow's own warning is made an error.
+MAX_PIXELS = 40_000_000
+Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+warnings.simplefilter("error", Image.DecompressionBombWarning)
+DECODES = threading.BoundedSemaphore(2)  # at most two photos decoded at once
 DATE = 2  # class index: background, name, date
 
 
@@ -43,7 +50,13 @@ class Finder:
 
     @torch.no_grad()
     def date_crops(self, photo):
-        img = Image.open(io.BytesIO(photo))
+        with DECODES:
+            return self._date_crops(photo)
+
+    def _date_crops(self, photo):
+        img = Image.open(io.BytesIO(photo))  # reads only the header
+        if img.width * img.height > MAX_PIXELS:
+            raise ValueError("photo too large")
         img.load()
         img = img.convert("RGB")
         scale = min(1.0, self.side / max(img.size))
@@ -94,7 +107,7 @@ def handler_for(finder):
                 return self.reply(413 if length > MAX_BYTES else 400, {"error": "Send one photo of at most 15 MB."})
             try:
                 self.reply(200, finder.date_crops(self.rfile.read(length)))
-            except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
+            except (UnidentifiedImageError, Image.DecompressionBombError, Image.DecompressionBombWarning, OSError, ValueError):
                 self.reply(400, {"error": "The photo could not be opened."})
 
         def log_message(self, *args):  # no request logging: photos may show patient details
