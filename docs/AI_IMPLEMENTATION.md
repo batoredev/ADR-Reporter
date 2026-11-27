@@ -179,6 +179,31 @@ On the drawn packs, v2 showed one wrong value as certain out of about 170 (a com
 in "eq. to"). The other miss was a misread brand, which was flagged for checking. Synthetic held-out set (brands,
 reactions and wording never trained on): field accuracy 99.6%.
 
+### Reading a pack's batch and date block close up
+
+On a strip, the batch number and dates are a small stamped block, often printed sideways or photographed upside
+down. A small detector finds that block so the reader can read it a second time, close up.
+
+- Data: the Roboflow Universe dataset "major project" by college-hxirw
+  (https://universe.roboflow.com/college-hxirw/major-project-8anow, CC BY 4.0). It has 1,716 real strip and pack
+  photos with boxes around each name and date. `ml/detector/download.py` downloads it to `ml/data` (gitignored) with
+  its credit; it needs `ROBOFLOW_API_KEY` in `.env`. Its 507 untouched "valid" photos are only used for testing.
+- Detector: `ml/detector/train.py`, a torchvision Faster R-CNN with a MobileNetV3 backbone (BSD licence), starting
+  from COCO weights. About 26 minutes on an RTX 3050. On the 507 test photos it covers the whole batch/date block in
+  454 of 494 cases (91.9%), with 16 false detections. A second run of 10 rounds reached the same level (91.1%), so
+  the labels, not training time, are now the limit.
+- Helper: `ml/detector/serve.py --model ml/runs/detector/<run>/model.pt` runs next to Ollama on the same machine.
+  It listens on 127.0.0.1:11500 and returns the block cut out, enlarged and turned both ways. Set
+  `PACK_DETECTOR_URL=http://127.0.0.1:11500`. If the helper is not running, photos are read as before.
+- In the reader: for a single-medicine pack, each turn of the block is read like a photo (double read included),
+  and the turn that yields more of batch and expiry is used. `combineReadings` merges it with the whole-photo
+  reading. Agreeing values are trusted. A value only one reading has is used and shown for checking. When the two
+  differ, the whole-photo value is kept and shown for checking.
+- Measured through the app on 30 of the test photos, whose batch and dates were read by hand
+  (`samples/pack-dates-benchmark.json`, `npm run ai:evaluate-pack-dates -- --full` with the helper running):
+  expiry 24/30 and batch 12/18 from the whole photo alone; 27/30 and 13/18 with the close-up. No wrong value was
+  shown as certain either way. It adds about 30 s per pack photo.
+
 ### The double-read check
 
 A small vision model does not leave a photo it cannot read blank: it invents a plausible document. On drawn

@@ -1,0 +1,426 @@
+{
+ "about": "Batch, manufacturing and expiry dates read by hand (27 November 2026) from 30 photos of medicine strips and packs in the 'valid' split of the Roboflow Universe dataset \"major project\" by college-hxirw (https://universe.roboflow.com/college-hxirw/major-project-8anow, CC BY 4.0, version 5). batch is null where the box cut it off or it is not fully legible, so it is not scored. box is the dataset's date box [x, y, w, h] in pixels. The photos are downloaded with ml/detector/download.py and are not stored here.",
+ "licence": "CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)",
+ "photos": [
+  {
+   "id": 0,
+   "file": "tab_805_jpg.rf.603285d15f8702bd7404229e3d1f51c8.jpg",
+   "box": [
+    113,
+    1570,
+    719,
+    128
+   ],
+   "batch": null,
+   "mfg": "2022-06",
+   "expiry": "2024-05",
+   "upside_down": false
+  },
+  {
+   "id": 1,
+   "file": "tab_700_jpg.rf.f1db793c4e88bd65a5be04120e95bde1.jpg",
+   "box": [
+    554,
+    812,
+    990,
+    226
+   ],
+   "batch": "AT2201080A",
+   "mfg": "2022-01",
+   "expiry": "2023-12",
+   "upside_down": false
+  },
+  {
+   "id": 2,
+   "file": "tab_609_jpg.rf.f7719eddf045516eb121049d6da1c87a.jpg",
+   "box": [
+    241,
+    1675,
+    544,
+    246
+   ],
+   "batch": "DSB103008AS",
+   "mfg": "2023-04",
+   "expiry": "2026-03",
+   "upside_down": false
+  },
+  {
+   "id": 3,
+   "file": "tab_566_jpg.rf.408f24c66c6478a1a13728f08379a129.jpg",
+   "box": [
+    1019,
+    264,
+    155,
+    1210
+   ],
+   "batch": "KO30267",
+   "mfg": "2023-05",
+   "expiry": "2025-04",
+   "upside_down": true
+  },
+  {
+   "id": 4,
+   "file": "tab_996_jpg.rf.2050dba22c55a8321439ad2530008f77.jpg",
+   "box": [
+    1680,
+    479,
+    279,
+    683
+   ],
+   "batch": "GC10281",
+   "mfg": "2022-02",
+   "expiry": "2024-01",
+   "upside_down": true
+  },
+  {
+   "id": 5,
+   "file": "tab_781_jpg.rf.ca737a71f0453c5ae24bb83c6745484b.jpg",
+   "box": [
+    212,
+    217,
+    1254,
+    307
+   ],
+   "batch": "GBRD0018",
+   "mfg": "2023-04",
+   "expiry": "2025-03",
+   "upside_down": false
+  },
+  {
+   "id": 6,
+   "file": "tab_945_jpg.rf.fac669e57171535edb79178af05d7175.jpg",
+   "box": [
+    416,
+    1571,
+    961,
+    261
+   ],
+   "batch": "HCL2221",
+   "mfg": "2022-08",
+   "expiry": "2025-07",
+   "upside_down": false
+  },
+  {
+   "id": 7,
+   "file": "tab_656_jpg.rf.a2173fcfc2ae10212f03368001649152.jpg",
+   "box": [
+    1598,
+    175,
+    237,
+    953
+   ],
+   "batch": "STC23196",
+   "mfg": "2023-04",
+   "expiry": "2025-03",
+   "upside_down": true
+  },
+  {
+   "id": 8,
+   "file": "tab_775_jpg.rf.39bad8a38cf3fc8615e98e50243d6b84.jpg",
+   "box": [
+    156,
+    169,
+    1530,
+    315
+   ],
+   "batch": "GDWC0138",
+   "mfg": "2022-11",
+   "expiry": "2024-10",
+   "upside_down": false
+  },
+  {
+   "id": 9,
+   "file": "tab_632_jpg.rf.234330ada54a9cf8826579474516b09a.jpg",
+   "box": [
+    959,
+    429,
+    199,
+    1037
+   ],
+   "batch": null,
+   "mfg": "2022-10",
+   "expiry": "2024-09",
+   "upside_down": true
+  },
+  {
+   "id": 10,
+   "file": "tab_503_jpg.rf.ad18573bbf42d2dfd384a91f917cbe74.jpg",
+   "box": [
+    365,
+    935,
+    479,
+    314
+   ],
+   "batch": null,
+   "mfg": "2023-02",
+   "expiry": "2026-01",
+   "upside_down": false
+  },
+  {
+   "id": 11,
+   "file": "tab_912_jpg.rf.fc9e6aea9dc47dfb5f88473b4a027db4.jpg",
+   "box": [
+    169,
+    1735,
+    545,
+    153
+   ],
+   "batch": null,
+   "mfg": "2023-02",
+   "expiry": "2025-01",
+   "upside_down": false
+  },
+  {
+   "id": 12,
+   "file": "tab_893_jpg.rf.c561a1e655f971311d6f27b262327ba9.jpg",
+   "box": [
+    260,
+    1623,
+    789,
+    247
+   ],
+   "batch": "WIN22018",
+   "mfg": "2022-09",
+   "expiry": "2024-08",
+   "upside_down": false
+  },
+  {
+   "id": 13,
+   "file": "tab_648_jpg.rf.85a14dec4077a5af303230755e07493e.jpg",
+   "box": [
+    1651,
+    203,
+    164,
+    520
+   ],
+   "batch": null,
+   "mfg": "2023-02",
+   "expiry": "2024-07",
+   "upside_down": true
+  },
+  {
+   "id": 14,
+   "file": "tab_934_jpg.rf.87dcf616bc079553fda96cdc4b05df52.jpg",
+   "box": [
+    232,
+    1692,
+    676,
+    155
+   ],
+   "batch": "AST23047MB",
+   "mfg": "2023-02",
+   "expiry": "2025-01",
+   "upside_down": false
+  },
+  {
+   "id": 15,
+   "file": "tab_74_jpg.rf.0c5044328a5bc0f305f2c1426620bac6.jpg",
+   "box": [
+    85,
+    1135,
+    727.5,
+    192.5
+   ],
+   "batch": "22390045",
+   "mfg": "2022-06",
+   "expiry": "2024-05",
+   "upside_down": false
+  },
+  {
+   "id": 16,
+   "file": "tab_580_jpg.rf.6f356bf4c2d151ad834135fcb5c4d664.jpg",
+   "box": [
+    266,
+    510,
+    1596,
+    553
+   ],
+   "batch": null,
+   "mfg": "2022-12",
+   "expiry": "2024-05",
+   "upside_down": false
+  },
+  {
+   "id": 17,
+   "file": "tab_922_jpg.rf.3bb6bfe5e0bb76a01ff93adb7fd642b7.jpg",
+   "box": [
+    566,
+    947,
+    940,
+    244
+   ],
+   "batch": "MOT23003",
+   "mfg": "2023-01",
+   "expiry": "2024-12",
+   "upside_down": false
+  },
+  {
+   "id": 18,
+   "file": "tab_533_jpg.rf.9dd3e05281db2d5c9d1d60ef4dbe4312.jpg",
+   "box": [
+    1601,
+    174,
+    279,
+    1143
+   ],
+   "batch": "PTA/02-03",
+   "mfg": "2022-02",
+   "expiry": "2024-01",
+   "upside_down": true
+  },
+  {
+   "id": 19,
+   "file": "tab_771_jpg.rf.fcc0ad4ca7705289d8eef72c3101f008.jpg",
+   "box": [
+    355,
+    184,
+    1467,
+    262
+   ],
+   "batch": "GAZC0024",
+   "mfg": "2022-11",
+   "expiry": "2024-04",
+   "upside_down": false
+  },
+  {
+   "id": 20,
+   "file": "tab_761_jpg.rf.c7524b87d08802d58b490b3d52c94b6a.jpg",
+   "box": [
+    388,
+    844,
+    1065,
+    194
+   ],
+   "batch": "PRT23011",
+   "mfg": "2023-03",
+   "expiry": "2025-02",
+   "upside_down": false
+  },
+  {
+   "id": 21,
+   "file": "tab_936_jpg.rf.3988f1b5d3029e8badaa7d67dcf0be97.jpg",
+   "box": [
+    250,
+    1583,
+    779,
+    223
+   ],
+   "batch": null,
+   "mfg": "2022-06",
+   "expiry": "2024-05",
+   "upside_down": false
+  },
+  {
+   "id": 22,
+   "file": "tab_697_jpg.rf.f8bb26ab233eea7f3451d259b705f9c1.jpg",
+   "box": [
+    379,
+    1486,
+    1287,
+    312
+   ],
+   "batch": "22443564",
+   "mfg": "2022-11",
+   "expiry": "2025-10",
+   "upside_down": false
+  },
+  {
+   "id": 23,
+   "file": "tab_606_jpg.rf.253d2009b60fd746d9946def48c58eeb.jpg",
+   "box": [
+    1735,
+    219,
+    210,
+    520
+   ],
+   "batch": null,
+   "mfg": "2022-05",
+   "expiry": "2024-04",
+   "upside_down": true
+  },
+  {
+   "id": 24,
+   "file": "tab_637_jpg.rf.a5beae9540c8189923240dfffbac76b2.jpg",
+   "box": [
+    216,
+    1610,
+    872,
+    242
+   ],
+   "batch": null,
+   "mfg": "2023-04",
+   "expiry": "2025-03",
+   "upside_down": false
+  },
+  {
+   "id": 25,
+   "file": "tab_678_jpg.rf.3a8d2783a669c90be065f1d80e3819e1.jpg",
+   "box": [
+    170,
+    1648,
+    589,
+    126
+   ],
+   "batch": null,
+   "mfg": "2023-03",
+   "expiry": "2025-02",
+   "upside_down": false
+  },
+  {
+   "id": 26,
+   "file": "tab_834_jpg.rf.c2d7cd945cf0e924022222ecbdd434e5.jpg",
+   "box": [
+    322,
+    1570,
+    1084,
+    289
+   ],
+   "batch": "TF22316",
+   "mfg": "2022-10",
+   "expiry": "2024-09",
+   "upside_down": false
+  },
+  {
+   "id": 27,
+   "file": "tab_684_jpg.rf.3712156a8622ac82eb7a9c96f00cfe0d.jpg",
+   "box": [
+    291,
+    1617,
+    1166,
+    298
+   ],
+   "batch": null,
+   "mfg": "2023-04",
+   "expiry": "2025-03",
+   "upside_down": false
+  },
+  {
+   "id": 28,
+   "file": "tab_868_jpg.rf.ae65ab430aa1f9672270e59f1094230b.jpg",
+   "box": [
+    251,
+    1621,
+    815,
+    263
+   ],
+   "batch": "ID22-0731B",
+   "mfg": "2022-11",
+   "expiry": "2024-10",
+   "upside_down": false
+  },
+  {
+   "id": 29,
+   "file": "tab_649_jpg.rf.34f957862c9babee1d186e3354f35369.jpg",
+   "box": [
+    262,
+    1635,
+    637,
+    238
+   ],
+   "batch": null,
+   "mfg": "2022-12",
+   "expiry": "2025-11",
+   "upside_down": false
+  }
+ ]
+}

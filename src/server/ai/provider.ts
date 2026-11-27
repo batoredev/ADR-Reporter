@@ -78,6 +78,7 @@ export function configuredProviders(env: Env = process.env): AiProvider[] {
                 numCtx,
                 keepForLearning: env.LEARN_FROM_REPORTS?.trim().toLowerCase() !== "off",
                 doubleRead: env.OLLAMA_DOUBLE_READ?.trim().toLowerCase() !== "off",
+                detectorUrl: env.PACK_DETECTOR_URL?.trim() || undefined,
               })
             : createOllamaProvider({ baseUrl, apiKey, model, numCtx }),
         );

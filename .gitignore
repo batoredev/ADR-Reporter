@@ -72,3 +72,4 @@ next-env.d.ts
 /ml/artifacts/
 __pycache__/
 *.pyc
+/.playwright-mcp/

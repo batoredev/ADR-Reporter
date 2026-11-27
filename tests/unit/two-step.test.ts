@@ -3,6 +3,7 @@ import { chatExtractionSchema } from "@/lib/domain/chat-extraction";
 import { AiError } from "@/server/ai/provider";
 import {
   cleanTranscript,
+  combineReadings,
   confirmedBy,
   createTwoStepProvider,
   sharedWords,
@@ -144,6 +145,24 @@ describe("two-step local reading: the fixed part", () => {
     expect(performance.now() - started).toBeLessThan(200);
   });
 
+  it("fills a course or dose unit the model left out from the medicine's own Rx line, and nothing else", () => {
+    const rx = reviseReading(
+      blank({
+        medicines: [
+          medicine({ name: "syp DELCON", dose: "3", frequency: "TDS" }),
+          medicine({ name: "syp CALPOL (250/5)", dose: "4ML", frequency: "Q6H", duration: "x 3d" }),
+          medicine({ name: "Tab Dolo 650", dose: "1", frequency: "SOS" }),
+        ],
+      }),
+      "syp DELCON 3 ML TDS x sd\nsyp CALPOL (250/5) 4ML Q6H x 3d\nTab Dolo 650 1 SOS",
+    );
+    expect(rx.medicines.map((m) => [m.dose, m.duration])).toEqual([
+      ["3 ML", "x 5d"],
+      ["4ML", "x 3d"],
+      ["1", null],
+    ]);
+  });
+
   it("treats a 'pack' that says how to take the medicine as a prescription", () => {
     const typed = reviseReading(
       blank({
@@ -190,6 +209,13 @@ describe("two-step local reading: the fixed part", () => {
     expect(batchOf("173 205", "Plot No. 12, Baddi (HP) 173 205")).toBeNull();
     expect(batchOf("G/25/536", "Mfg. Lic. No.: G/25/536")).toBeNull();
     expect(batchOf("KZ4417A", "B.No. KZ4417A")).toBe("KZ4417A");
+    // The label read into the value (seen on a real strip), and labels that are part of the code are kept.
+    expect(batchOf("B.NO.KO30267", "B.NO.KO30267 MFD.MAY 23")).toBe("KO30267");
+    expect(batchOf("Batch No: AT2201080A", "Batch No: AT2201080A")).toBe("AT2201080A");
+    expect(batchOf("LOT LN646K43", "LOT LN646K43")).toBe("LN646K43");
+    expect(batchOf("BN12345", "BN12345")).toBe("BN12345");
+    expect(batchOf("PTA/02-03", "B.No.PTA/02-03")).toBe("PTA/02-03");
+    expect(batchOf("B..STC23196", "B..STC23196 M.R.P.Rs.67.65")).toBe("STC23196");
   });
 
   it("reads dates day first, month-year on packs, and month first only on a US form", () => {
@@ -457,5 +483,86 @@ describe("two-step local reading: the double-read check", () => {
     expect(output.medications[0].name.value).toBe("Plutifer Nand spray");
     expect(output.medications[0].name.uncertain).toBe(false);
     expect(meta).toMatchObject({ steps: 2 });
+  });
+});
+
+describe("two-step local reading: the close-up of a pack's batch/date block", () => {
+  const v = (value: string | null, uncertain = false) => ({ value, sourceText: value, uncertain, approximate: false });
+  const same = (a: string, b: string) => a === b;
+
+  it("trusts what the whole photo and the close-up agree on, and flags everything else", () => {
+    expect(combineReadings(v("2028-02"), v("2028-02"), same)).toMatchObject({ value: "2028-02", uncertain: false });
+    expect(combineReadings(v("2028-02", true), v("2028-02", true), same).uncertain).toBe(true);
+    expect(combineReadings(v(null), v("2028-02"), same)).toMatchObject({ value: "2028-02", uncertain: true });
+    expect(combineReadings(v("2028-02"), v(null), same)).toMatchObject({ value: "2028-02", uncertain: true });
+    // They differ: neither is more often right, so the whole-photo value stays, shown for checking.
+    expect(combineReadings(v("HND0361A"), v("NNB0361A"), same)).toMatchObject({ value: "HND0361A", uncertain: true });
+  });
+
+  // Fictional pack: the whole photo misses the expiry; the close-up of the stamped block has it.
+  const WHOLE = "Zifi 200\nCefixime Tablets IP\nB.No. KZ4417A\nMfd. by: Cipla Ltd.";
+  const BLOCK = "B.No. KZ4417A\nMFG. 03/2026\nEXP. 02/2028";
+  const pack = (m: Partial<CompactReading["medicines"][number]>) =>
+    JSON.stringify(blank({ documentType: "MEDICINE_PACK", medicines: [medicine(m)] }));
+  function service(helper: unknown, ...ollama: string[]) {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith("/date-crops")) {
+        if (helper instanceof Error) throw helper;
+        return new Response(JSON.stringify(helper), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: { content: ollama.shift() }, eval_count: 5 }), { status: 200 });
+    });
+    const provider = createTwoStepProvider({
+      baseUrl: "http://localhost:11434",
+      visionModel: "vision",
+      textModel: "text",
+      detectorUrl: "http://127.0.0.1:11500",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const read = () =>
+      provider.generate({
+        task: "extract-document",
+        system: "",
+        prompt: "",
+        document: { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" },
+        schema: chatExtractionSchema,
+      });
+    return { fetchImpl, read };
+  }
+
+  it("reads the block close up, keeps the orientation that has the dates, and combines the two readings", async () => {
+    const helper = {
+      found: true,
+      score: 0.93,
+      crops: [
+        { angle: 0, jpeg: "QUJD" },
+        { angle: 180, jpeg: "QUJD" },
+      ],
+    };
+    const { read } = service(
+      helper,
+      WHOLE,
+      WHOLE,
+      pack({ name: "Zifi 200", composition: "Cefixime Tablets IP", batch: "KZ4417A", manufacturer: "Cipla Ltd." }),
+      BLOCK,
+      BLOCK,
+      pack({ batch: "KZ4417A", mfgDate: "03/2026", expiryDate: "02/2028" }),
+      "8Z0 VZ", // the upside-down turn reads as nothing: not used
+    );
+    const { output, meta } = await read();
+    const m = output.medications[0];
+    expect(m.batchLot).toMatchObject({ value: "KZ4417A", uncertain: false });
+    expect(m.expiryDate).toMatchObject({ value: "2028-02", uncertain: true });
+    expect(m.name.value).toBe("Zifi 200");
+    expect(meta).toMatchObject({ zoom: { found: true, score: 0.93, angle: 0 } });
+  });
+
+  it("keeps the whole-photo reading as it is when the helper is not running or finds no block", async () => {
+    for (const helper of [new Error("connection refused"), { found: false, score: 0, crops: [] }]) {
+      const { read } = service(helper, WHOLE, WHOLE, pack({ name: "Zifi 200", batch: "KZ4417A" }));
+      const { output, meta } = await read();
+      expect(output.medications[0].batchLot).toMatchObject({ value: "KZ4417A", uncertain: false });
+      expect(meta).toMatchObject({ zoom: { found: false } });
+    }
   });
 });

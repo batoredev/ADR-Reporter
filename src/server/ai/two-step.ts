@@ -219,7 +219,39 @@ export function reviseReading(compact: CompactReading, transcript: string): Comp
     if (m.dose && /^(?:#\s*\d+|no\.?\s*\d+|\d+\s*x\s*\d+\s*(?:tablets?|tabs?|capsules?|caps?))$/i.test(m.dose.trim()))
       m.dose = null;
     if (m.frequency && /^[s5][o0][s5]\.?$/i.test(m.frequency.trim())) m.frequency = "SOS";
+    // On a prescription, the course or the dose unit the model left out, taken from the medicine's own Rx line:
+    // "syp DELCON 3 ML TDS x sd" read as dose "3" and no course is dose "3 ML", course "x sd" (then "x 5d").
+    if (!pack && m.name) {
+      const name = m.name.toLowerCase();
+      const line = lines.find((l) => l.toLowerCase().includes(name));
+      const rest = line ? line.slice(line.toLowerCase().indexOf(name) + name.length) : "";
+      if (!m.duration) {
+        const course = rest.match(
+          /\b(?:x\s?[0-9sS]{1,3}\s?(?:d|days?|wks?|weeks?)|for\s\d{1,3}\s?(?:days?|weeks?))\b/i,
+        );
+        if (course) m.duration = course[0];
+      }
+      if (m.dose && /^\d{1,4}(?:\.\d{1,2})?$/.test(m.dose.trim())) {
+        const unit = rest.match(
+          new RegExp(
+            `\\b${m.dose.trim().replace(".", "\\.")}\\s?(?:ml|mg|mcg|tabs?|tablets?|caps?|capsules?|drops?|puffs?|sprays?)\\b`,
+            "i",
+          ),
+        );
+        if (unit) m.dose = unit[0];
+      }
+    }
     if (m.duration) m.duration = m.duration.replace(/\b([xX]\s*)[sS](\s*d(?:ays?)?\b)/, "$15$2");
+    // The label read into the batch: "B.NO.KO30267" and "B..STC23196" (the "No" lost) are KO30267 and STC23196.
+    // "BN12345" with no separator is left alone.
+    if (m.batch)
+      m.batch =
+        m.batch
+          .replace(
+            /^\s*(?:b\.\s*no\.?|b\.{2,}|batch\s*(?:no\.?)?|(?:lot|bn)(?:\s*no\.?)?\s*[:.-]|(?:lot|bn)\s)\s*[:.-]?\s*/i,
+            "",
+          )
+          .trim() || null;
     const previous = merged.at(-1);
     const isDosing =
       m.name &&
@@ -610,7 +642,25 @@ interface Config {
   keepForLearning?: boolean;
   /** Read each photo a second time and trust only what both readings contain (OLLAMA_DOUBLE_READ, on by default). */
   doubleRead?: boolean;
+  /** The pack-date helper (ml/detector/serve.py, PACK_DETECTOR_URL): finds the batch/date block to read close up. */
+  detectorUrl?: string;
   fetchImpl?: typeof fetch;
+}
+
+const sameBatch = (a: string, b: string) =>
+  a.toUpperCase().replace(/[^A-Z0-9]/g, "") === b.toUpperCase().replace(/[^A-Z0-9]/g, "");
+/**
+ * One field read from the whole photo and again from its close-up batch/date block. Measured on 30 real strips
+ * (27 November 2026), through the app: expiry 24/30 from the whole photo alone, 27/30 with the close-up, and no
+ * wrong value shown as certain. Agreeing readings are trusted; a value only one reading has is used and shown for
+ * checking. When the two differ, the whole-photo value is kept and shown for checking: on the strips neither was
+ * more often right, and on a real pack the close-up misread a batch the whole photo had right.
+ */
+export function combineReadings(whole: Value, closeUp: Value, same: (a: string, b: string) => boolean): Value {
+  if (!closeUp.value) return whole.value ? { ...whole, uncertain: true } : whole;
+  if (!whole.value) return { ...closeUp, uncertain: true };
+  if (same(whole.value, closeUp.value)) return { ...whole, uncertain: whole.uncertain && closeUp.uncertain };
+  return { ...whole, uncertain: true };
 }
 
 async function chat(config: Config, body: Record<string, unknown>, signal: AbortSignal | undefined) {
@@ -664,54 +714,24 @@ export function createTwoStepProvider(config: Config): AiProvider {
         );
         return { output: parseReply(schema, reply.content, "Ollama"), meta: { outputTokens: reply.tokens } };
       }
-      const seen = await chat(
-        config,
-        {
-          model: config.visionModel,
-          options: options(900),
-          messages: [{ role: "user", content: TRANSCRIBE_PROMPT, images: [toBase64(document.bytes)] }],
-        },
-        signal,
-      );
-      const transcript = cleanTranscript(seen.content);
-      if (transcript.length < 15) throw new AiError("The document could not be read reliably.");
-      // The check reading follows at once, while the vision model is still loaded (a small GPU holds one model at
-      // a time). If it fails, the first reading is used as before; if the two disagree badly, nothing is filled in.
-      const second =
-        config.doubleRead === false
-          ? null
-          : await chat(
-              config,
-              {
-                model: config.visionModel,
-                options: options(900),
-                messages: [{ role: "user", content: CHECK_PROMPT, images: [toBase64(document.bytes)] }],
-              },
-              signal,
-            ).then(
-              (r) => cleanTranscript(r.content),
-              () => null,
-            );
-      const agreement = second === null ? null : sharedWords(transcript, second);
-      if (agreement !== null && agreement < AGREEMENT_LOW)
-        throw new AiError(
-          "This photo could not be read reliably: two readings of it disagree. Retake it closer and in good light, or type the details.",
-        );
-      const picked = await chat(
-        config,
-        {
-          model: config.textModel,
-          format: replyJsonSchema(compactSchema),
-          options: options(2500),
-          messages: [
-            { role: "system", content: STRUCTURE_INSTRUCTIONS },
-            { role: "user", content: `Transcribed text:\n${transcript}` },
-          ],
-        },
-        signal,
-      );
-      const compact = reviseReading(parseReply(compactSchema, picked.content, "Ollama"), transcript);
-      const expanded = expandReading(compact, transcript, second === null ? undefined : confirmedBy(second));
+      const whole = await readPhoto(toBase64(document.bytes), signal);
+      const { transcript, second, agreement, compact, expanded } = whole;
+      let tokens = whole.tokens;
+      let steps = second === null ? 2 : 3;
+      // A pack: read its batch/date block again close up and combine the two readings of batch and expiry.
+      let zoom: Record<string, unknown> | undefined;
+      if (config.detectorUrl && compact.documentType === "MEDICINE_PACK" && expanded.medications.length === 1) {
+        const closeUp = await readDateBlock(document.bytes, signal);
+        zoom = { found: !!closeUp };
+        if (closeUp) {
+          const m = expanded.medications[0];
+          m.batchLot = combineReadings(m.batchLot, closeUp.batchLot, sameBatch);
+          m.expiryDate = combineReadings(m.expiryDate, closeUp.expiryDate, (a, b) => a === b);
+          tokens += closeUp.tokens;
+          steps += closeUp.steps;
+          zoom = { found: true, score: closeUp.score, angle: closeUp.angle };
+        }
+      }
       if (agreement !== null && agreement < AGREEMENT_CLEAR) expanded.readability = "PARTIAL";
       const parsed = schema.safeParse(expanded);
       if (!parsed.success) throw new AiError("Ollama replied in the wrong format.");
@@ -719,9 +739,10 @@ export function createTwoStepProvider(config: Config): AiProvider {
       return {
         output: parsed.data,
         meta: {
-          steps: second === null ? 2 : 3,
-          outputTokens: seen.tokens + picked.tokens,
+          steps,
+          outputTokens: tokens,
           ...(agreement !== null ? { agreement: Math.round(agreement * 1000) / 1000 } : {}),
+          ...(zoom ? { zoom } : {}),
           ...(config.keepForLearning
             ? { learning: { textModel: config.textModel, ...deidentify(transcript, compact) } }
             : {}),
@@ -729,4 +750,100 @@ export function createTwoStepProvider(config: Config): AiProvider {
       };
     },
   };
+
+  /** Transcribe (twice, to check), structure, correct and expand one photo or close-up. */
+  async function readPhoto(image: string, signal: AbortSignal | undefined) {
+    const seen = await chat(
+      config,
+      {
+        model: config.visionModel,
+        options: options(900),
+        messages: [{ role: "user", content: TRANSCRIBE_PROMPT, images: [image] }],
+      },
+      signal,
+    );
+    const transcript = cleanTranscript(seen.content);
+    if (transcript.length < 15) throw new AiError("The document could not be read reliably.");
+    // The check reading follows at once, while the vision model is still loaded (a small GPU holds one model at
+    // a time). If it fails, the first reading is used as before; if the two disagree badly, nothing is filled in.
+    const second =
+      config.doubleRead === false
+        ? null
+        : await chat(
+            config,
+            {
+              model: config.visionModel,
+              options: options(900),
+              messages: [{ role: "user", content: CHECK_PROMPT, images: [image] }],
+            },
+            signal,
+          ).then(
+            (r) => cleanTranscript(r.content),
+            () => null,
+          );
+    const agreement = second === null ? null : sharedWords(transcript, second);
+    if (agreement !== null && agreement < AGREEMENT_LOW)
+      throw new AiError(
+        "This photo could not be read reliably: two readings of it disagree. Retake it closer and in good light, or type the details.",
+      );
+    const picked = await chat(
+      config,
+      {
+        model: config.textModel,
+        format: replyJsonSchema(compactSchema),
+        options: options(2500),
+        messages: [
+          { role: "system", content: STRUCTURE_INSTRUCTIONS },
+          { role: "user", content: `Transcribed text:\n${transcript}` },
+        ],
+      },
+      signal,
+    );
+    const compact = reviseReading(parseReply(compactSchema, picked.content, "Ollama"), transcript);
+    const expanded = expandReading(compact, transcript, second === null ? undefined : confirmedBy(second));
+    return { transcript, second, agreement, compact, expanded, tokens: seen.tokens + picked.tokens };
+  }
+
+  /**
+   * The batch/date block read close up: the helper cuts it out and turns it both ways (strips are photographed
+   * either way up); the orientation whose reading has more of batch and expiry wins. Null when the helper is not
+   * running, finds no block, or neither orientation can be read: the whole-photo reading then stands alone.
+   */
+  async function readDateBlock(bytes: Uint8Array, signal: AbortSignal | undefined) {
+    let found: { found: boolean; score?: number; crops?: { angle: number; jpeg: string }[] };
+    try {
+      const response = await (config.fetchImpl ?? fetch)(`${config.detectorUrl!.replace(/\/+$/, "")}/date-crops`, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: new Uint8Array(bytes),
+        signal,
+      });
+      if (!response.ok) return null;
+      found = await response.json();
+    } catch {
+      return null;
+    }
+    if (!found.found || !found.crops?.length) return null;
+    let best: { batchLot: Value; expiryDate: Value; angle: number; tokens: number; steps: number } | null = null;
+    const filled = (r: { batchLot: Value; expiryDate: Value }) =>
+      Number(!!r.batchLot.value) + Number(!!r.expiryDate.value);
+    for (const crop of found.crops) {
+      try {
+        const read = await readPhoto(crop.jpeg, signal);
+        const m = read.expanded.medications.find((x) => x.batchLot.value || x.expiryDate.value);
+        if (!m) continue;
+        const candidate = {
+          batchLot: m.batchLot,
+          expiryDate: m.expiryDate,
+          angle: crop.angle,
+          tokens: read.tokens,
+          steps: 3,
+        };
+        if (!best || filled(candidate) > filled(best)) best = candidate;
+      } catch {
+        // An orientation that cannot be read is simply not used.
+      }
+    }
+    return best && { ...best, score: found.score ?? null };
+  }
 }
