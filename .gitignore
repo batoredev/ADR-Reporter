@@ -75,3 +75,4 @@ __pycache__/
 /.playwright-mcp/
 /deploy/model-server/models/
 /deploy/model-server/.env
+/.local-db/
