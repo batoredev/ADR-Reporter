@@ -76,3 +76,4 @@ __pycache__/
 /deploy/model-server/models/
 /deploy/model-server/.env
 /.local-db/
+/.claude/settings.local.json

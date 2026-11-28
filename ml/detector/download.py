@@ -17,14 +17,17 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-WORKSPACE, PROJECT = "college-hxirw", "major-project-8anow"
-OUT = Path("ml/data/roboflow-major-project")
-CREDIT = (
-    "Dataset: \"major project\" by college-hxirw on Roboflow Universe\n"
-    "https://universe.roboflow.com/college-hxirw/major-project-8anow\n"
-    "Licence: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n"
-    "Used to train a detector that finds the medicine name and date on a pack photo.\n"
-)
+#   Any other Universe project:  download.py --project <workspace>/<project> --out ml/data/<folder>
+# Only openly licensed datasets are downloaded; the licence is read from Roboflow, not assumed.
+import argparse as _argparse
+
+_args = _argparse.ArgumentParser()
+_args.add_argument("--project", default="college-hxirw/major-project-8anow")
+_args.add_argument("--out", default="ml/data/roboflow-major-project")
+_parsed = _args.parse_args()
+WORKSPACE, PROJECT = _parsed.project.split("/", 1)
+OUT = Path(_parsed.out)
+OPEN_LICENCES = ("CC BY 4.0", "CC BY-SA 4.0", "PUBLIC DOMAIN", "MIT", "CC0", "CC0 1.0", "CC BY 2.0", "CC BY 3.0")
 
 
 def api_key():
@@ -54,6 +57,12 @@ def main():
     if OUT.exists() and any(OUT.iterdir()):
         sys.exit(f"{OUT} already has files; remove it first to download again.")
     project = get_json(f"https://api.roboflow.com/{WORKSPACE}/{PROJECT}?api_key={key}")
+    licence = str(project.get("project", {}).get("license") or "").strip()
+    if licence.upper() not in OPEN_LICENCES:
+        sys.exit(f"Not downloaded: the licence is '{licence or 'not stated'}', not an open licence.")
+    name = project.get("project", {}).get("name") or PROJECT
+    credit = (f"Dataset: \"{name}\" by {WORKSPACE} on Roboflow Universe\n"
+              f"https://universe.roboflow.com/{WORKSPACE}/{PROJECT}\nLicence: {licence}\n")
     versions = sorted(int(v["id"].rsplit("/", 1)[1]) for v in project.get("versions", []))
     if not versions:
         sys.exit("The dataset has no downloadable version.")
@@ -83,7 +92,7 @@ def main():
                 sys.exit(f"Refused an archive entry outside the folder: {member.filename}")
         z.extractall(root)
     archive.unlink()
-    (OUT / "ATTRIBUTION.txt").write_text(CREDIT, encoding="utf-8")
+    (OUT / "ATTRIBUTION.txt").write_text(credit, encoding="utf-8")
     for split in ("train", "valid", "test"):
         ann = root / split / "_annotations.coco.json"
         if ann.exists():
