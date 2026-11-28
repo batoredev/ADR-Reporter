@@ -1,0 +1,21 @@
+# HTTPS for MODEL_SERVER_DOMAIN. Every request needs "Authorization: Bearer <MODEL_SERVER_TOKEN>". Only reading
+# requests pass: Ollama's /api/chat, /api/tags and /api/version, and the helper under /detector/. Ollama's admin
+# requests (pull, create, delete, copy, push) are never reachable from outside.
+{$MODEL_SERVER_DOMAIN} {
+	@authorized header Authorization "Bearer {$MODEL_SERVER_TOKEN}"
+	handle @authorized {
+		handle_path /detector/* {
+			reverse_proxy helper:11500
+		}
+		@reading path /api/chat /api/tags /api/version
+		handle @reading {
+			reverse_proxy ollama:11434
+		}
+		handle {
+			respond 404
+		}
+	}
+	handle {
+		respond 401
+	}
+}

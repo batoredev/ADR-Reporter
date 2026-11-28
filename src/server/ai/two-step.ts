@@ -644,8 +644,17 @@ interface Config {
   doubleRead?: boolean;
   /** The pack-date helper (ml/detector/serve.py, PACK_DETECTOR_URL): finds the batch/date block to read close up. */
   detectorUrl?: string;
+  /**
+   * The model for everything that is not a document reading: chat answers and narratives (OLLAMA_CHAT_MODEL). A
+   * structurer fine-tuned only to turn transcripts into readings (adr-structurer) is not trained for those.
+   */
+  chatModel?: string;
+  /** Sent as a bearer token to Ollama and the helper, for a model server behind a gateway (OLLAMA_API_KEY). */
+  apiKey?: string;
   fetchImpl?: typeof fetch;
 }
+const authorization = (config: Config): Record<string, string> =>
+  config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {};
 
 const sameBatch = (a: string, b: string) =>
   a.toUpperCase().replace(/[^A-Z0-9]/g, "") === b.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -668,7 +677,7 @@ async function chat(config: Config, body: Record<string, unknown>, signal: Abort
   try {
     response = await (config.fetchImpl ?? fetch)(`${config.baseUrl.replace(/\/+$/, "")}/api/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authorization(config) },
       body: JSON.stringify({ stream: false, think: false, ...body }),
       signal,
     });
@@ -683,7 +692,8 @@ async function chat(config: Config, body: Record<string, unknown>, signal: Abort
 
 /**
  * A local Ollama pair: a vision model that transcribes and a text model that structures. Document readings go
- * through the two steps; every other task (chat answers, narratives) goes to the text model directly.
+ * through the two steps; every other task (chat answers, narratives) goes to the chat model (or the text model when
+ * no chat model is set).
  */
 export function createTwoStepProvider(config: Config): AiProvider {
   const options = (numPredict: number) => ({
@@ -702,7 +712,7 @@ export function createTwoStepProvider(config: Config): AiProvider {
         const reply = await chat(
           config,
           {
-            model: config.textModel,
+            model: config.chatModel ?? config.textModel,
             format: replyJsonSchema(schema),
             options: options(maxOutputTokens ?? 4000),
             messages: [
@@ -814,7 +824,7 @@ export function createTwoStepProvider(config: Config): AiProvider {
     try {
       const response = await (config.fetchImpl ?? fetch)(`${config.detectorUrl!.replace(/\/+$/, "")}/date-crops`, {
         method: "POST",
-        headers: { "content-type": "application/octet-stream" },
+        headers: { "content-type": "application/octet-stream", ...authorization(config) },
         body: new Uint8Array(bytes),
         signal,
       });

@@ -179,6 +179,14 @@ On the drawn packs, v2 showed one wrong value as certain out of about 170 (a com
 in "eq. to"). The other miss was a misread brand, which was flagged for checking. Synthetic held-out set (brands,
 reactions and wording never trained on): field accuracy 99.6%.
 
+### Running the models in production
+
+`deploy/model-server/` runs everything on one GPU machine with Docker: Ollama with the vision, structurer and chat
+models, the pack-date helper, and a Caddy gateway. The gateway serves HTTPS, requires the access key
+(`OLLAMA_API_KEY` in the app) and lets through only reading requests. Its README gives every step and the Supabase
+secrets. Chat answers and narratives go to `OLLAMA_CHAT_MODEL` (a general model such as qwen3:4b), never to the
+trained structurer, which is trained only to structure document readings.
+
 ### Reading a pack's batch and date block close up
 
 On a strip, the batch number and dates are a small stamped block, often printed sideways or photographed upside

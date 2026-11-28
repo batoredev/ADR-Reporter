@@ -73,3 +73,5 @@ next-env.d.ts
 __pycache__/
 *.pyc
 /.playwright-mcp/
+/deploy/model-server/models/
+/deploy/model-server/.env

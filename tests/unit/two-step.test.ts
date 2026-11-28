@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { chatExtractionSchema } from "@/lib/domain/chat-extraction";
 import { AiError } from "@/server/ai/provider";
 import {
@@ -475,6 +476,35 @@ describe("two-step local reading: the double-read check", () => {
     await expect(ollama(FIRST, invented, compactReply).read()).rejects.toThrow(/two readings of it disagree/);
     // Refused before the structuring step: no time spent on a reading that cannot be trusted.
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends chat answers to the chat model, documents to the structurer, and the access key with every call", async () => {
+    const bodies: { model: string; auth: string | null }[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { model: string };
+      bodies.push({ model: body.model, auth: new Headers(init.headers).get("authorization") });
+      const content =
+        body.model === "vision" ? FIRST : body.model === "text" ? compactReply : '{"updates":[],"roles":[]}';
+      return new Response(JSON.stringify({ message: { content }, eval_count: 1 }), { status: 200 });
+    });
+    const provider = createTwoStepProvider({
+      baseUrl: "https://models.example.test",
+      visionModel: "vision",
+      textModel: "text",
+      chatModel: "chat",
+      apiKey: "test-token",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await provider.generate({ task: "chat", system: "", prompt: "rash on 2/11", schema: z.object({}).passthrough() });
+    await provider.generate({
+      task: "extract-document",
+      system: "",
+      prompt: "",
+      document: { bytes: new Uint8Array([1]), mimeType: "image/jpeg" },
+      schema: chatExtractionSchema,
+    });
+    expect(bodies.map((b) => b.model)).toEqual(["chat", "vision", "vision", "text"]);
+    expect(bodies.every((b) => b.auth === "Bearer test-token")).toBe(true);
   });
 
   it("uses the first reading as before when the check reading fails", async () => {

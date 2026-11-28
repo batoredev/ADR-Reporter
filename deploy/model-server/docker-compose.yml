@@ -1,0 +1,45 @@
+# The ADR Reporter model server: Ollama (vision, structurer and chat models), the pack-date helper, and a gateway
+# that requires the access key and allows only reading requests. See README.md in this folder.
+services:
+  ollama:
+    image: ollama/ollama:0.40.17 # the version the reader was tested with
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_MAX_LOADED_MODELS: "3" # vision, structurer and chat model stay loaded together
+    volumes:
+      - ollama:/root/.ollama
+      - ./models:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
+  helper:
+    build:
+      context: ../../ml/detector
+      dockerfile: ../../deploy/model-server/helper.Dockerfile
+    restart: unless-stopped
+    command: ["python", "serve.py", "--model", "/models/detector/model.pt", "--host", "0.0.0.0"]
+    volumes:
+      - ./models:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
+  gateway:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      MODEL_SERVER_DOMAIN: ${MODEL_SERVER_DOMAIN:?set MODEL_SERVER_DOMAIN in .env}
+      MODEL_SERVER_TOKEN: ${MODEL_SERVER_TOKEN:?set MODEL_SERVER_TOKEN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [ollama, helper]
+
+volumes:
+  ollama: {}
+  caddy: {}
